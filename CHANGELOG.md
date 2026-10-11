@@ -4,6 +4,13 @@ All notable Dashcenter changes are recorded here. The project follows [Semantic 
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-12
+
+### Security
+
+- Limited authenticated image uploads to 12 requests per account per minute across background and icon upload routes. Excess requests return HTTP 429 with a `Retry-After` header before image processing or file writes.
+- Kept the existing 10 MB per-image validation, authentication, and stored dashboard data unchanged.
+
 ## [1.0.2] - 2026-10-10
 
 ### Security

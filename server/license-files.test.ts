@@ -76,7 +76,10 @@ test("contribution, third-party, and distribution notices are present", async ()
   assert.match(provenance, /Reference images: none/);
   assert.match(provenance, /dashcenter-mark\.svg/);
   assert.match(sourceProvenance, /No imported Homepage source file/);
-  assert.match(dependencyInventory, /Packages: \*\*85\*\*/);
+  const declaredPackages = Number(dependencyInventory.match(/Packages: \*\*(\d+)\*\*/)?.[1]);
+  const listedPackages = dependencyInventory.split("\n").filter((line) => line.startsWith("| `")).length;
+  assert.equal(declaredPackages, listedPackages);
+  assert.match(dependencyInventory, /`@fastify\/rate-limit` \| `11\.2\.1` \| `MIT`/);
   assert.match(dependencyInventory, /`react` \| `19\.2\.8` \| `MIT`/);
   assert.match(dockerfile, /org\.opencontainers\.image\.licenses="AGPL-3\.0-only"/);
   assert.match(dockerfile, /org\.opencontainers\.image\.revision="\$\{DASHCENTER_REVISION\}"/);
