@@ -2,7 +2,7 @@
 
 This generated inventory covers the production dependency graph resolved by `pnpm-lock.yaml`. Package licence files remain in the installed package directories included in the runtime image. Regenerate this file whenever the lockfile changes.
 
-Packages: **85**
+Packages: **87**
 
 | Package | Resolved version(s) | Licence | Project |
 | --- | --- | --- | --- |
@@ -21,6 +21,7 @@ Packages: **85**
 | `@fastify/merge-json-schemas` | `0.2.1` | `MIT` | https://github.com/fastify/merge-json-schemas#readme |
 | `@fastify/multipart` | `9.4.0` | `MIT` | https://github.com/fastify/fastify-multipart#readme |
 | `@fastify/proxy-addr` | `5.1.0` | `MIT` | https://github.com/fastify/proxy-addr#readme |
+| `@fastify/rate-limit` | `11.2.1` | `MIT` | https://github.com/fastify/fastify-rate-limit#readme |
 | `@fastify/send` | `4.1.1` | `MIT` | https://github.com/fastify/send#readme |
 | `@fastify/static` | `10.1.4` | `MIT` | https://github.com/fastify/fastify-static |
 | `@lukeed/ms` | `2.0.2` | `MIT` | https://github.com/lukeed/ms#readme |
@@ -50,6 +51,7 @@ Packages: **85**
 | `glob` | `13.0.6` | `BlueOak-1.0.0` | https://github.com/isaacs/node-glob#readme |
 | `http-errors` | `2.0.1` | `MIT` | https://github.com/jshttp/http-errors#readme |
 | `inherits` | `2.0.4` | `ISC` | https://github.com/isaacs/inherits#readme |
+| `ip-address` | `10.7.3` | `MIT` | https://github.com/beaugunderson/ip-address#readme |
 | `ipaddr.js` | `2.5.0` | `MIT` | https://github.com/whitequark/ipaddr.js#readme |
 | `js-yaml` | `4.3.2` | `MIT` | https://github.com/nodeca/js-yaml#readme |
 | `json-schema-ref-resolver` | `3.0.0` | `MIT` | https://github.com/fastify/json-schema-ref-resolver#readme |

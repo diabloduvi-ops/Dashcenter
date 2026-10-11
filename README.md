@@ -4,7 +4,7 @@
 
 # Dashcenter
 
-**Current release: v1.0.2**
+**Current release: v1.0.3**
 
 Dashcenter is a self-hosted start page and service dashboard managed from the browser. It combines links, service status, Docker metadata, native service integrations and flexible widgets in one responsive board without requiring users to maintain YAML for everyday changes.
 
@@ -40,7 +40,7 @@ All deployment methods use the same application and **/data** layout. Docker dis
 
 Anyone who can reach Dashcenter can view the published dashboard, its visible service links and data shown by enabled widgets and plugins. Editing and administration require the account created during first-run setup. Hidden groups and services, disabled widgets, private feed URLs, provider credentials and Docker connection endpoints are excluded from anonymous dashboard responses. Keep sensitive information out of service names, descriptions and links that you choose to publish.
 
-Complete the first-run administrator setup on a trusted network before making the dashboard reachable from the internet. Failed logins are temporarily throttled, but internet-facing installations should also use HTTPS and a trusted reverse proxy. JSON configuration backups omit server-side credentials and uploaded files, but they still contain service links and internal connection settings; store them privately.
+Complete the first-run administrator setup on a trusted network before making the dashboard reachable from the internet. Failed logins are temporarily throttled, and signed-in image uploads share a limit of 12 requests per account per minute across all upload forms. Internet-facing installations should also use HTTPS and a trusted reverse proxy. JSON configuration backups omit server-side credentials and uploaded files, but they still contain service links and internal connection settings; store them privately.
 
 ## Requirements
 
@@ -113,7 +113,7 @@ Create a Portainer stack from the repository:
 
 1. Open **Stacks → Add stack** and choose **Repository**.
 2. Set **Repository URL** to https://github.com/diabloduvi-ops/Dashcenter.git.
-3. Use a published tag such as **refs/tags/v1.0.2** for controlled upgrades, or **refs/heads/main** for continuous updates.
+3. Use a published tag such as **refs/tags/v1.0.3** for controlled upgrades, or **refs/heads/main** for continuous updates.
 4. Set **Compose path** to **docker-compose.yml**.
 5. Add **DASHCENTER_PORT**, **TZ**, **TRUST_PROXY**, **SESSION_COOKIE_SECURE** and, optionally, **DASHCENTER_REVISION**.
 6. Deploy the stack and open the selected port or reverse-proxy hostname.
@@ -129,9 +129,9 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        DASHCENTER_VERSION: "1.0.2"
+        DASHCENTER_VERSION: "1.0.3"
         DASHCENTER_REVISION: "${DASHCENTER_REVISION:-unknown}"
-    image: dashcenter:1.0.2
+    image: dashcenter:1.0.3
     pull_policy: build
     container_name: dashcenter
     restart: unless-stopped
@@ -161,8 +161,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile.proxy
       args:
-        DASHCENTER_VERSION: "1.0.2"
-    image: dashcenter-docker-proxy:1.0.2
+        DASHCENTER_VERSION: "1.0.3"
+    image: dashcenter-docker-proxy:1.0.3
     container_name: dashcenter-docker-proxy
     restart: unless-stopped
     environment:
@@ -194,9 +194,9 @@ Build the application image directly when you already manage networking, reverse
 
 ~~~bash
 docker build \
-  --build-arg DASHCENTER_VERSION=1.0.2 \
+  --build-arg DASHCENTER_VERSION=1.0.3 \
   --build-arg DASHCENTER_REVISION="$(git rev-parse HEAD)" \
-  -t dashcenter:1.0.2 .
+  -t dashcenter:1.0.3 .
 ~~~
 
 Run it with a named volume:
@@ -216,7 +216,7 @@ docker run -d \
   -e TRUST_PROXY=false \
   -e SESSION_COOKIE_SECURE=false \
   -v dashcenter_data:/data \
-  dashcenter:1.0.2
+  dashcenter:1.0.3
 ~~~
 
 Adapt the cookie and proxy settings before exposing the container through HTTPS. The same image can run in other OCI-compatible platforms as long as **/data** is writable and persistent.

@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
+import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
@@ -89,6 +90,7 @@ import { createUploadPruner, detectImageExtension } from "./upload-storage.js";
 import { fetchWeather } from "./weather.js";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const IMAGE_UPLOADS_PER_MINUTE = 12;
 const MAX_IMPORT_SOURCE_BYTES = MAX_UPLOAD_BYTES;
 const MAX_IMPORT_BODY_BYTES = MAX_IMPORT_SOURCE_BYTES * 2 + 64 * 1024;
 const IMAGE_EXTENSIONS: Record<string, string> = {
@@ -386,6 +388,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   try {
     await app.register(cookie);
+    await app.register(rateLimit, { global: false });
+    const checkImageUploadRate = app.createRateLimit({
+      max: IMAGE_UPLOADS_PER_MINUTE,
+      timeWindow: "1 minute",
+      keyGenerator: (request) => `user:${auth.state(request).username?.toLowerCase() ?? request.ip}`,
+    });
+    const limitImageUploads = async (request: FastifyRequest, reply: FastifyReply) => {
+      const result = await checkImageUploadRate(request);
+      if (!result.isAllowed && result.isExceeded) {
+        return reply
+          .header("Retry-After", String(Math.max(1, result.ttlInSeconds)))
+          .code(429)
+          .send({ error: "Too many image uploads. Try again later." });
+      }
+    };
   await app.register(multipart, {
     limits: { files: 1, fileSize: MAX_UPLOAD_BYTES, fields: 20, parts: 21 },
   });
@@ -1330,17 +1347,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.post(
     "/api/appearance/background",
-    { preHandler: auth.requireAuth },
+    { preHandler: [auth.requireAuth, limitImageUploads] },
     imageUploadHandler(uploadsDirectory),
   );
   app.post(
     "/api/appearance/icon",
-    { preHandler: auth.requireAuth },
+    { preHandler: [auth.requireAuth, limitImageUploads] },
     imageUploadHandler(uploadsDirectory),
   );
   app.post(
     "/api/icons/upload",
-    { preHandler: auth.requireAuth },
+    { preHandler: [auth.requireAuth, limitImageUploads] },
     imageUploadHandler(uploadsDirectory),
   );
   app.get("/api/icons/svg/:set/:name", async (request, reply) => {
