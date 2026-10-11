@@ -1,0 +1,14 @@
+title: Dashcenter Demo
+theme: dark
+color: slate
+background:
+  image: /images/background.jpg
+  blur: sm
+  opacity: 70
+layout:
+  Docker Services:
+    style: row
+    columns: 1
+  Cloud services:
+    style: row
+    columns: 1

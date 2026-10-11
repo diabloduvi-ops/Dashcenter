@@ -1,0 +1,100 @@
+:root {
+  color-scheme: dark;
+  font-family: var(--dc-font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  /* Typography */
+  --dc-font-sans: "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --dc-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --dc-text-page: clamp(1.5rem, 2.25vw, 1.75rem);
+  --dc-text-section: 1.0625rem;
+  --dc-text-body: 0.875rem;
+  --dc-text-helper: 0.75rem;
+  --dc-weight-regular: 450;
+  --dc-weight-medium: 550;
+  --dc-weight-semibold: 650;
+  --dc-weight-bold: 700;
+
+  /* Forest semantic color roles */
+  --dc-color-canvas: #06100d;
+  --dc-color-canvas-deep: #040b09;
+  --dc-color-surface: #081313;
+  --dc-color-surface-raised: #0d1d18;
+  --dc-color-surface-soft: rgba(235, 255, 248, 0.045);
+  --dc-color-surface-hover: rgba(235, 255, 248, 0.082);
+  --dc-color-surface-selected: rgba(78, 226, 138, 0.105);
+  --dc-color-glass: rgba(8, 19, 19, 0.31);
+  --dc-color-text: #f1f6f4;
+  --dc-color-text-muted: #a8b5b1;
+  --dc-color-text-faint: #74827d;
+  --dc-color-border-subtle: rgba(220, 245, 237, 0.09);
+  --dc-color-border: rgba(220, 245, 237, 0.15);
+  --dc-color-border-strong: rgba(220, 245, 237, 0.25);
+  --dc-color-accent: #4ee28a;
+  --dc-color-accent-hover: #68e99b;
+  --dc-color-accent-contrast: #062113;
+  --dc-color-success: #34c759;
+  --dc-color-warning: #f5a623;
+  --dc-color-danger: #e55353;
+  --dc-color-info: #56a8ff;
+  --dc-color-focus: #79efaa;
+
+  /* Spacing */
+  --dc-space-1: 4px;
+  --dc-space-2: 8px;
+  --dc-space-3: 12px;
+  --dc-space-4: 16px;
+  --dc-space-5: 20px;
+  --dc-space-6: 24px;
+  --dc-space-8: 32px;
+  --dc-space-10: 40px;
+  --dc-space-12: 48px;
+
+  /* Shape and sizing */
+  --dc-radius-icon: 8px;
+  --dc-radius-control: 9px;
+  --dc-radius-panel: 12px;
+  --dc-radius-shell: 16px;
+  --dc-radius-pill: 999px;
+  --dc-control-height: 40px;
+  --dc-touch-target: 44px;
+  --dc-dashboard-max: 1840px;
+  --dc-admin-sidebar: 228px;
+  --dc-admin-list: 300px;
+  --dc-admin-inspector-min: 520px;
+
+  /* Effects and motion */
+  --dc-glass-blur: 17px;
+  --dc-background-overlay: rgba(3, 10, 8, 0.17);
+  --dc-shadow-panel: 0 12px 34px rgba(0, 0, 0, 0.22);
+  --dc-shadow-shell: 0 22px 64px rgba(0, 0, 0, 0.3);
+  --dc-duration-feedback: 180ms;
+  --dc-duration-pane: 240ms;
+  --dc-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --dc-focus-ring: 0 0 0 3px color-mix(in srgb, var(--dc-color-focus) 22%, transparent);
+
+  /* Compatibility aliases while existing screens migrate to semantic roles. */
+  --accent: var(--dc-color-accent);
+  --background: var(--dc-color-canvas);
+  --surface: var(--dc-color-glass);
+  --surface-raised: var(--dc-color-surface-raised);
+  --surface-soft: var(--dc-color-surface-soft);
+  --surface-hover: var(--dc-color-surface-hover);
+  --text: var(--dc-color-text);
+  --muted: var(--dc-color-text-muted);
+  --faint: var(--dc-color-text-faint);
+  --border: var(--dc-color-border);
+  --border-strong: var(--dc-color-border-strong);
+  --danger: var(--dc-color-danger);
+  --glass-alpha: 0.31;
+  --glass-blur: var(--dc-glass-blur);
+  --shadow: var(--dc-shadow-panel);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dc-duration-feedback: 0.01ms;
+    --dc-duration-pane: 0.01ms;
+  }
+}

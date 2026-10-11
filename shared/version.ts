@@ -1,0 +1,2 @@
+export const DASHCENTER_VERSION = "1.0.2";
+export const DASHCENTER_RELEASE = `v${DASHCENTER_VERSION}`;

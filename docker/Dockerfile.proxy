@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+ARG DASHCENTER_VERSION=1.0.2
+FROM ghcr.io/tecnativa/docker-socket-proxy:v0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
+ARG DASHCENTER_VERSION
+
+LABEL org.opencontainers.image.source="https://github.com/diabloduvi-ops/Dashcenter" \
+      org.opencontainers.image.documentation="https://github.com/diabloduvi-ops/Dashcenter#readme" \
+      org.opencontainers.image.licenses="AGPL-3.0-only AND Apache-2.0" \
+      org.opencontainers.image.version="${DASHCENTER_VERSION}"
+
+COPY docker/docker-proxy.haproxy.cfg /usr/local/etc/haproxy/haproxy.cfg.template

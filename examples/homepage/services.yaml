@@ -1,0 +1,109 @@
+- Docker Services:
+    - Beszel:
+        icon: beszel.png
+        href: https://monitor.example.com
+        description: Monitoring
+        server: docker-local
+        container: beszel
+    - Portainer:
+        icon: portainer.png
+        href: https://portainer.example.com
+        description: Docker management
+        server: docker-local
+        container: portainer
+    - Linkwarden:
+        icon: linkwarden.png
+        href: https://links.example.com
+        description: Link management
+        server: docker-local
+        container: linkwarden
+    - Prunemate:
+        icon: prunemate.png
+        href: https://containers.example.com
+        description: Docker management
+        server: docker-local
+        container: prunemate
+    - PhotoPrism:
+        icon: photoprism.png
+        href: https://photos.example.com
+        description: Photo collection
+        server: docker-local
+        container: photoprism
+    - Swing Music:
+        icon: swingmusic.png
+        href: https://music.example.com
+        description: Music collection
+        server: docker-local
+        container: swing-music
+    - Nginx Proxy Manager:
+        icon: nginx-proxy-manager.png
+        href: https://proxy.example.com
+        description: Proxy manager
+        server: docker-local
+        container: npm
+
+- Docker Backend:
+    - Ferdium Server:
+        icon: ferdium.png
+        href: https://workspace.example.com
+        description: Services workspace
+        server: media-server
+        container: ferdium-server
+    - Docker Windows:
+        icon: sh-microsoft-windows.png
+        href: https://windows.example.com
+        description: Win11
+        server: lab-server
+        container: windows11
+
+- Cloud services:
+    - Notion:
+        icon: notion.webp
+        href: https://www.notion.so/product
+        description: Knowledge base
+    - TickTick:
+        icon: sh-ticktick.png
+        href: https://ticktick.com/webapp
+        description: Task management
+    - ChatGPT:
+        icon: sh-chatgpt-light.png
+        href: https://chatgpt.com/
+        description: AI Chat
+    - Perplexity:
+        icon: sh-perplexity-ai.png
+        href: https://www.perplexity.ai/
+        description: AI Chat
+    - Proton Pass:
+        icon: sh-proton-pass.png
+        href: https://pass.proton.me
+        description: Password manager
+
+- IT:
+    - Hetzner:
+        icon: hetzner.png
+        href: https://console.hetzner.cloud/
+        description: Cloud management
+    - Bitdefender:
+        icon: bitdefender.png
+        href: https://central.bitdefender.com/
+        description: Antivirus
+    - Websupport:
+        icon: websupport.png
+        href: https://admin.websupport.sk/
+        description: Domain services
+    - Tailscale:
+        icon: tailscale.png
+        href: https://login.tailscale.com/admin
+        description: VPN management
+
+- Social:
+    - Facebook:
+        icon: facebook.png
+        href: https://facebook.com/
+        description: Social
+
+- Entertainment:
+    - YouTube:
+        icon: youtube.png
+        href: https://youtube.com/
+        description: Video

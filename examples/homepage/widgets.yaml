@@ -1,0 +1,13 @@
+- datetime:
+    text_size: xl
+    format:
+      dateStyle: long
+      timeStyle: short
+- search:
+    provider: google
+    target: _blank
+- openmeteo:
+    label: London
+    latitude: 51.5072
+    longitude: -0.1276
+    units: metric

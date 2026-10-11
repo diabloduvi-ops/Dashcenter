@@ -1,0 +1,69 @@
+name: dashcenter
+
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DASHCENTER_VERSION: "1.0.2"
+        DASHCENTER_REVISION: "${DASHCENTER_REVISION:-unknown}"
+    image: dashcenter:1.0.2
+    pull_policy: build
+    container_name: dashcenter
+    restart: unless-stopped
+    ports:
+      - "${DASHCENTER_PORT:-3000}:3000"
+    environment:
+      TZ: ${TZ:-UTC}
+      DATA_DIR: /data
+      PORT: 3000
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+    volumes:
+      - dashcenter_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      dockerproxy:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  dockerproxy:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.proxy
+      args:
+        DASHCENTER_VERSION: "1.0.2"
+    image: dashcenter-docker-proxy:1.0.2
+    container_name: dashcenter-docker-proxy
+    restart: unless-stopped
+    environment:
+      DISABLE_IPV6: 1
+      LOG_LEVEL: warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - default
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  dashcenter_data:
+    name: dashcenter_data

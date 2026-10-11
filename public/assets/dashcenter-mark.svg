@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img">
+  <title>Dashcenter</title>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#071c16"/>
+  <rect x="10" y="10" width="19" height="19" rx="5" fill="#68e6a4"/>
+  <path d="M35 10h2c9.389 0 17 7.611 17 17v2H35V10Z" fill="#effff7"/>
+  <rect x="10" y="35" width="19" height="19" rx="5" fill="#2bab78"/>
+  <path d="M35 35h19v2c0 9.389-7.611 17-17 17h-2V35Z" fill="#68e6a4"/>
+  <circle cx="32" cy="32" r="6" fill="#79edb1" stroke="#071c16" stroke-width="3"/>
+</svg>

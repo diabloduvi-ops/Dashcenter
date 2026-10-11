@@ -1,0 +1,9 @@
+docker-local:
+  host: dockerproxy
+  port: 2375
+media-server:
+  host: media-server.example.com
+  port: 2375
+lab-server:
+  host: lab-server.example.com
+  port: 2375

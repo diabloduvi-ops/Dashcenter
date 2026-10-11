@@ -1,0 +1,13 @@
+.DS_Store
+.env*
+!.env.example
+node_modules/
+.playwright-cli/
+dist/
+dist-server/
+data/
+*.db
+*.db-shm
+*.db-wal
+outputs/*.zip
+work/
