@@ -46,6 +46,7 @@ services:
       args:
         DASHCENTER_VERSION: "1.0.3"
     image: dashcenter-docker-proxy:1.0.3
+    pull_policy: build
     container_name: dashcenter-docker-proxy
     restart: unless-stopped
     environment:
