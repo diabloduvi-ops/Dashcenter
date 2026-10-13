@@ -18,6 +18,7 @@ pnpm test
 pnpm build
 pnpm licenses:check
 docker compose config
+docker compose -f compose.ghcr.yml config
 ```
 
 Never commit passwords, API tokens, private URLs, database files, uploaded user data or other personal information.

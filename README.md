@@ -29,9 +29,10 @@ Dashcenter is an independent project inspired by the clarity of Homepage. It is 
 
 | Method | Best for | Docker metadata |
 | --- | --- | --- |
-| Docker Compose | Most self-hosted installations | Included through the restricted metadata gateway |
-| Portainer Stack | GUI-managed Docker environments | Included through the same restricted gateway |
+| Docker Compose (GHCR images) | Most self-hosted installations | Included through the restricted metadata gateway |
+| Portainer Stack (Web editor) | GUI-managed Docker environments | Included through the same restricted gateway |
 | Dashboard-only container | Hosts that do not need local Docker discovery | Disabled unless an external connection is added |
+| Build from source | Development and custom images | Included through the restricted metadata gateway |
 | Node.js from source | Development and contributions | Optional |
 
 All deployment methods use the same application and **/data** layout. Docker discovery is optional; links, widgets and native HTTP integrations continue to work without it.
@@ -53,86 +54,42 @@ For container deployments:
 
 For source development, use Node.js 24 or newer and pnpm 11.
 
-## Docker Compose
+## Docker Compose with published images
 
-Clone the repository and create the local environment file:
+The [GHCR Compose file](compose.ghcr.yml) runs the published Dashcenter and restricted Docker metadata gateway images. Download it and create the persistent data volume before the first start:
 
 ~~~bash
-git clone https://github.com/diabloduvi-ops/Dashcenter.git
-cd Dashcenter
-cp .env.example .env
+curl -fsSLo compose.yml https://raw.githubusercontent.com/diabloduvi-ops/Dashcenter/main/compose.ghcr.yml
+docker volume create dashcenter_data
+docker compose -f compose.yml config
+docker compose -f compose.yml up -d
+docker compose -f compose.yml ps
 ~~~
 
-For a trusted LAN or VPN over plain HTTP:
+The default port is **3000** on a trusted HTTP LAN or VPN. To change the port, timezone, or proxy settings, put a **.env** file beside **compose.yml**:
 
 ~~~dotenv
 DASHCENTER_PORT=3000
 TZ=Europe/Bratislava
 TRUST_PROXY=false
 SESSION_COOKIE_SECURE=false
-DASHCENTER_REVISION=unknown
 ~~~
 
-For an HTTPS reverse proxy:
+For an HTTPS reverse proxy, set **TRUST_PROXY=true** and **SESSION_COOKIE_SECURE=true**. Open **http://your-server:3000**, or the hostname configured in your reverse proxy. The first visitor creates the administrator account.
 
-~~~dotenv
-DASHCENTER_PORT=3000
-TZ=Europe/Bratislava
-TRUST_PROXY=true
-SESSION_COOKIE_SECURE=true
-DASHCENTER_REVISION=unknown
-~~~
+The stack runs **dashboard**, **dockerproxy**, and the external named volume **dashcenter_data**. Keep the same volume name when updating or changing deployment methods.
 
-Validate, build and start the complete stack:
+## Portainer Stack (Web editor)
 
-~~~bash
-docker compose config
-DASHCENTER_REVISION="$(git rev-parse HEAD)" docker compose up -d --build
-docker compose ps
-~~~
-
-Open **http://your-server:3000**, or the hostname configured in your reverse proxy. The first visitor creates the administrator account.
-
-The complete Compose stack starts:
-
-- **dashboard**, the Dashcenter application
-- **dockerproxy**, an internal Docker metadata gateway
-- **dashcenter_data**, the persistent named volume
-
-To run only Dashcenter without mounting the Docker socket into any companion container:
-
-~~~bash
-docker compose up -d --build --no-deps dashboard
-~~~
-
-Docker-backed service status and discovery remain unavailable until you add a reachable Docker API connection. Every other feature remains usable.
-
-## Portainer Stack
-
-Create a Portainer stack from the repository:
-
-1. Open **Stacks → Add stack** and choose **Repository**.
-2. Set **Repository URL** to https://github.com/diabloduvi-ops/Dashcenter.git.
-3. Use a published tag such as **refs/tags/v1.0.3** for controlled upgrades, or **refs/heads/main** for continuous updates.
-4. Set **Compose path** to **docker-compose.yml**.
-5. Add **DASHCENTER_PORT**, **TZ**, **TRUST_PROXY**, **SESSION_COOKIE_SECURE** and, optionally, **DASHCENTER_REVISION**.
-6. Deploy the stack and open the selected port or reverse-proxy hostname.
-
-Portainer deploys the following Docker Compose definition from the repository:
+Create the volume **dashcenter_data** under **Volumes** if this is a new installation. For an existing installation, reuse its volume and edit its current stack. In **Stacks → Add stack → Web editor**, paste the following Compose definition. Set **DASHCENTER_PORT**, **TZ**, **TRUST_PROXY**, and **SESSION_COOKIE_SECURE** in the stack environment if you need values other than the defaults.
 
 ~~~yaml
 name: dashcenter
 
 services:
   dashboard:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        DASHCENTER_VERSION: "1.0.3"
-        DASHCENTER_REVISION: "${DASHCENTER_REVISION:-unknown}"
-    image: dashcenter:1.0.3
-    pull_policy: build
+    image: ghcr.io/diabloduvi-ops/dashcenter:latest
+    pull_policy: always
     container_name: dashcenter
     restart: unless-stopped
     ports:
@@ -140,9 +97,9 @@ services:
     environment:
       TZ: ${TZ:-UTC}
       DATA_DIR: /data
-      PORT: 3000
+      PORT: "3000"
       TRUST_PROXY: "${TRUST_PROXY:-false}"
-      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-false}"
     volumes:
       - dashcenter_data:/data
     read_only: true
@@ -155,19 +112,20 @@ services:
     depends_on:
       dockerproxy:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   dockerproxy:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.proxy
-      args:
-        DASHCENTER_VERSION: "1.0.3"
-    image: dashcenter-docker-proxy:1.0.3
-    pull_policy: build
+    image: ghcr.io/diabloduvi-ops/dashcenter-docker-proxy:latest
+    pull_policy: always
     container_name: dashcenter-docker-proxy
     restart: unless-stopped
     environment:
-      DISABLE_IPV6: 1
+      DISABLE_IPV6: "1"
       LOG_LEVEL: warning
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -182,27 +140,35 @@ services:
 
 volumes:
   dashcenter_data:
+    external: true
     name: dashcenter_data
 ~~~
 
-The checked-in [docker-compose.yml](docker-compose.yml) remains the source of truth. Repository deployment is required for this full stack because Portainer builds the application and the restricted Docker gateway from the accompanying Dockerfiles and configuration. Use the dashboard-only container method when deploying through the Web editor without repository files.
+The same definition is kept in [compose.ghcr.yml](compose.ghcr.yml). **pull_policy: always** pulls the current image when Compose redeploys the stack. Existing installations should keep their **dashcenter_data** volume mounted at **/data**.
 
-Use **TRUST_PROXY=true** and **SESSION_COOKIE_SECURE=true** when Portainer places Dashcenter behind HTTPS. Use both values as **false** only on a trusted HTTP LAN or VPN.
+Use **TRUST_PROXY=true** and **SESSION_COOKIE_SECURE=true** behind HTTPS. Use both values as **false** only on a trusted HTTP LAN or VPN.
+
+## Build from source
+
+The root [docker-compose.yml](docker-compose.yml) builds both images from the repository. It is used for source development and CI:
+
+~~~bash
+git clone https://github.com/diabloduvi-ops/Dashcenter.git
+cd Dashcenter
+cp .env.example .env
+docker compose config
+DASHCENTER_REVISION="$(git rev-parse HEAD)" docker compose up -d --build
+docker compose ps
+~~~
+
+Set the proxy and cookie values in **.env** for your HTTP or HTTPS setup. To run only Dashcenter without its local Docker metadata gateway, use **docker compose up -d --build --no-deps dashboard**.
 
 ## Dashboard-only container
 
-Build the application image directly when you already manage networking, reverse proxying or monitoring elsewhere:
+Run the published application image directly when you manage networking, reverse proxying or monitoring elsewhere:
 
 ~~~bash
-docker build \
-  --build-arg DASHCENTER_VERSION=1.0.3 \
-  --build-arg DASHCENTER_REVISION="$(git rev-parse HEAD)" \
-  -t dashcenter:1.0.3 .
-~~~
-
-Run it with a named volume:
-
-~~~bash
+docker volume create dashcenter_data
 docker run -d \
   --name dashcenter \
   --restart unless-stopped \
@@ -217,10 +183,10 @@ docker run -d \
   -e TRUST_PROXY=false \
   -e SESSION_COOKIE_SECURE=false \
   -v dashcenter_data:/data \
-  dashcenter:1.0.3
+  ghcr.io/diabloduvi-ops/dashcenter:latest
 ~~~
 
-Adapt the cookie and proxy settings before exposing the container through HTTPS. The same image can run in other OCI-compatible platforms as long as **/data** is writable and persistent.
+Adapt the cookie and proxy settings before exposing the container through HTTPS. Docker-backed service status and discovery require a reachable Docker API connection; every other feature remains usable.
 
 ## Docker metadata connections
 
@@ -261,27 +227,36 @@ The web editor can download and restore a portable JSON configuration backup. JS
 For complete migration or disaster recovery, back up the entire **/data** volume. The following example briefly stops Dashcenter so the SQLite database and uploads are copied consistently:
 
 ~~~bash
-docker compose stop dashboard
+docker stop dashcenter
 docker run --rm \
   -v dashcenter_data:/data:ro \
   -v "$PWD":/backup \
   alpine:3.22 \
   tar -czf /backup/dashcenter-data.tar.gz -C /data .
-docker compose start dashboard
+docker start dashcenter
 ~~~
 
 Keep complete backups outside the Docker host and test restoration. Do not use **docker compose down -v** unless you intentionally want to delete the persistent volume.
 
 ## Updates
 
-For a command-line deployment:
+For published images installed from **compose.yml**:
+
+~~~bash
+docker compose -f compose.yml pull
+docker compose -f compose.yml up -d
+~~~
+
+In Portainer, update the existing Web editor stack. The two **latest** image tags and **pull_policy: always** make a redeploy fetch the current published images. Watchtower can also monitor both containers for new **latest** images; its polling and container replacement are configured separately from Compose. If Watchtower filters by label or container name, include both **dashcenter** and **dashcenter-docker-proxy**.
+
+For a source-built installation:
 
 ~~~bash
 git pull --ff-only
 DASHCENTER_REVISION="$(git rev-parse HEAD)" docker compose up -d --build
 ~~~
 
-For Portainer, pull and redeploy the stack or enable GitOps polling. Database migrations run automatically and normal rebuilds preserve the named volume.
+Back up the complete **dashcenter_data** volume before unattended upgrades. Database migrations run automatically, and redeployments keep the named volume mounted at **/data**.
 
 Review [CHANGELOG.md](CHANGELOG.md) before updating. A release tag identifies the exact source for a published version. The application version and source revision are also available from **/api/healthz** and the OCI image labels.
 
@@ -307,6 +282,7 @@ pnpm test
 pnpm build
 pnpm licenses:check
 docker compose config
+docker compose -f compose.ghcr.yml config
 docker build -t dashcenter:test .
 ~~~
 
@@ -328,7 +304,7 @@ Dashcenter follows semantic versioning:
 - **MINOR** for completed backward-compatible capabilities
 - **PATCH** for fixes and small compatibility or deployment corrections
 
-Every release synchronizes the application, health API, Docker image tag, README and changelog. Container builds accept **DASHCENTER_REVISION** and record it in the OCI **org.opencontainers.image.revision** label.
+Every release synchronizes the application, health API, README and changelog. The [image publishing workflow](.github/workflows/publish-images.yml) gives both GHCR images a version tag such as **1.0.3** and the moving **latest** tag. Container builds accept **DASHCENTER_REVISION** and record it in the OCI **org.opencontainers.image.revision** label.
 
 ## Licence and provenance
 
