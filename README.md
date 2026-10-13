@@ -4,7 +4,7 @@
 
 # Dashcenter
 
-**Current release: v1.0.3**
+**Current release: v1.0.4**
 
 Dashcenter is a self-hosted start page and service dashboard managed from the browser. It combines links, service status, Docker metadata, native service integrations and flexible widgets in one responsive board without requiring users to maintain YAML for everyday changes.
 
@@ -310,7 +310,7 @@ Dashcenter follows semantic versioning:
 - **MINOR** for completed backward-compatible capabilities
 - **PATCH** for fixes and small compatibility or deployment corrections
 
-Every release synchronizes the application, health API, README and changelog. The [image publishing workflow](.github/workflows/publish-images.yml) gives both GHCR images a version tag such as **1.0.3** and the moving **latest** tag. Container builds accept **DASHCENTER_REVISION** and record it in the OCI **org.opencontainers.image.revision** label.
+Every release synchronizes the application, health API, README and changelog. The [image publishing workflow](.github/workflows/publish-images.yml) gives both GHCR images a version tag such as **1.0.4** and the moving **latest** tag. Container builds accept **DASHCENTER_REVISION** and record it in the OCI **org.opencontainers.image.revision** label.
 
 ## Licence and provenance
 

@@ -48,10 +48,11 @@ test("the approved dedicated workspace owns layout editing while Appearance stay
   assert.match(dashboardTabSource, /Tablet/);
   assert.match(dashboardTabSource, /Mobile/);
   assert.match(dashboardTabSource, /Close editor/);
-  assert.match(dashboardTabSource, /Save layout/);
+  assert.match(dashboardTabSource, /Dashboard name/);
+  assert.match(dashboardTabSource, /Save changes/);
   assert.match(dashboardTabSource, /past, setPast/);
   assert.match(dashboardTabSource, /future, setFuture/);
-  assert.match(dashboardTabSource, /const saved = await onCommit\(draft/);
+  assert.match(dashboardTabSource, /const saved = await onCommit\(next/);
   assert.doesNotMatch(servicesSource, /Dashboard columns/);
   assert.doesNotMatch(servicesSource, /Save group & grid/);
   assert.match(dashboardSource, /Dashboard settings/);

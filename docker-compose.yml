@@ -8,9 +8,9 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        DASHCENTER_VERSION: "1.0.3"
+        DASHCENTER_VERSION: "1.0.4"
         DASHCENTER_REVISION: "${DASHCENTER_REVISION:-unknown}"
-    image: dashcenter:1.0.3
+    image: dashcenter:1.0.4
     pull_policy: build
     container_name: dashcenter
     restart: unless-stopped
@@ -46,8 +46,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile.proxy
       args:
-        DASHCENTER_VERSION: "1.0.3"
-    image: dashcenter-docker-proxy:1.0.3
+        DASHCENTER_VERSION: "1.0.4"
+    image: dashcenter-docker-proxy:1.0.4
     pull_policy: build
     container_name: dashcenter-docker-proxy
     restart: unless-stopped
