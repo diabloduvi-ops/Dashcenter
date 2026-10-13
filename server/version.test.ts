@@ -27,7 +27,7 @@ test("release version stays synchronized across runtime, package, Docker and doc
   assert.match(readme, new RegExp(`Current release: v${escapedVersion}`));
   assert.match(readme, /Docker Compose/);
   assert.match(readme, /Portainer/);
-  assert.match(readme, /dockerfile: docker\/Dockerfile\.proxy/);
+  assert.match(compose, /dockerfile: docker\/Dockerfile\.proxy/);
   assert.match(readme, /dashboard-only container/i);
   assert.match(changelog, new RegExp(`## \\[${escapedVersion}\\]`));
   assert.equal(existsSync(new URL("../docs/NEXT_RELEASE.md", import.meta.url)), false);

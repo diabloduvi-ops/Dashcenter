@@ -4,6 +4,10 @@ All notable Dashcenter changes are recorded here. The project follows [Semantic 
 
 ## [Unreleased]
 
+### Changed
+
+- Added published GHCR images for Dashcenter and its Docker metadata gateway, plus a Compose example for Portainer Web editor and Watchtower-compatible `latest` tags.
+
 ## [1.0.3] - 2026-10-12
 
 ### Security

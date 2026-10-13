@@ -1,3 +1,5 @@
+# Builds both images from this repository for development and CI.
+# For published GHCR images and Watchtower, use compose.ghcr.yml.
 name: dashcenter
 
 services:
