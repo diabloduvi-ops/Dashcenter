@@ -4,8 +4,11 @@ All notable Dashcenter changes are recorded here. The project follows [Semantic 
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-13
+
 ### Changed
 
+- Restored the Dashboard name field in the GUI editor. The preview updates immediately, and Save changes persists the name alongside layout edits.
 - Added published GHCR images for Dashcenter and its Docker metadata gateway, plus a Compose example for Portainer Web editor and Watchtower-compatible `latest` tags.
 
 ## [1.0.3] - 2026-10-12

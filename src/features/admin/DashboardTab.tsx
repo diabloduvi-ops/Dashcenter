@@ -43,6 +43,7 @@ export function DashboardTab({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const dirty = useMemo(() => dashboardChanged(baseline, draft), [baseline, draft]);
+  const nameValid = draft.settings.title.trim().length > 0;
 
   useEffect(() => {
     setBaseline(cloneDashboard(data));
@@ -89,20 +90,22 @@ export function DashboardTab({
   }
 
   async function save() {
-    if (!dirty || saving) return;
+    if (!dirty || saving || !nameValid) return;
     setSaving(true);
     setError("");
     try {
-      const saved = await onCommit(draft, "Dashboard layout saved");
+      const next = { ...draft, settings: { ...draft.settings, title: draft.settings.title.trim() } };
+      const saved = await onCommit(next, "Dashboard saved");
       if (!saved) {
-        setError("Could not save the dashboard layout.");
+        setError("Could not save the dashboard.");
         return;
       }
-      setBaseline(cloneDashboard(draft));
+      setBaseline(cloneDashboard(next));
+      setDraft(cloneDashboard(next));
       setPast([]);
       setFuture([]);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Could not save the dashboard layout.");
+      setError(requestError instanceof Error ? requestError.message : "Could not save the dashboard.");
     } finally {
       setSaving(false);
     }
@@ -144,19 +147,31 @@ export function DashboardTab({
           <button className="ui-button ui-button--secondary" type="button" onClick={onClose} aria-label="Close editor" title="Close editor">
             <X size={16} /> Close editor
           </button>
-          <button className="ui-button ui-button--primary" type="button" onClick={() => void save()} disabled={!dirty || saving}>
-            <Save size={16} /> {saving ? "Saving…" : "Save layout"}
+          <button className="ui-button ui-button--primary" type="button" onClick={() => void save()} disabled={!dirty || saving || !nameValid}>
+            <Save size={16} /> {saving ? "Saving…" : "Save changes"}
           </button>
         </div>
       </header>
 
       <div className="admin-dashboard-editor__body">
         <div className="admin-dashboard-editor__canvas-bar">
-          <button type="button" onClick={undo} disabled={!past.length || saving} aria-label="Undo layout change"><Undo2 size={16} /></button>
-          <button type="button" onClick={redo} disabled={!future.length || saving} aria-label="Redo layout change"><Redo2 size={16} /></button>
+          <button type="button" onClick={undo} disabled={!past.length || saving} aria-label="Undo dashboard change"><Undo2 size={16} /></button>
+          <button type="button" onClick={redo} disabled={!future.length || saving} aria-label="Redo dashboard change"><Redo2 size={16} /></button>
+          <label className="admin-dashboard-editor__name-field">
+            <span>Dashboard name</span>
+            <input
+              className="ui-input"
+              aria-label="Dashboard name"
+              aria-invalid={!nameValid}
+              maxLength={120}
+              required
+              value={draft.settings.title}
+              onChange={(event) => changeDraft({ ...draft, settings: { ...draft.settings, title: event.target.value } })}
+            />
+          </label>
           <span className={dirty ? "is-dirty" : ""}>
             <CheckCircle2 size={14} />
-            {saving ? "Saving layout…" : dirty ? "Unsaved changes" : "Layout saved on server"}
+            {!nameValid ? "Enter a dashboard name" : saving ? "Saving dashboard…" : dirty ? "Unsaved changes" : "Dashboard saved on server"}
           </span>
           {dirty ? <button className="admin-dashboard-editor__cancel" type="button" onClick={cancel} disabled={saving}>Reset changes</button> : null}
         </div>

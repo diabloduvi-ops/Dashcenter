@@ -1,6 +1,6 @@
 {
   "name": "dashcenter",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "description": "A GUI-managed, self-hosted dashboard for Docker and Portainer.",
