@@ -10,6 +10,12 @@ Dashcenter is a self-hosted start page and service dashboard managed from the br
 
 Dashcenter is an independent project inspired by the clarity of Homepage. It is not affiliated with, endorsed by, or maintained by Homepage or its maintainers.
 
+## Preview
+
+![Customized Dashcenter dashboard with service groups, live status, and widgets](docs/screenshots/dashboard-example.png)
+
+*Example of a customized Dashcenter installation.*
+
 ## Highlights
 
 - Browser-based setup and administration
