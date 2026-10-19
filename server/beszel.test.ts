@@ -98,6 +98,29 @@ test("Beszel credentials remain server-only and power the public widget endpoint
       up: 1,
       updatedAt: widgetResponse.json<{ updatedAt: string }>().updatedAt,
     });
+    assert.ok(mock.calls.every((call) => call.init?.redirect === "error"));
+
+    const callCount = mock.calls.length;
+    const foreignTest = await app.inject({
+      method: "POST", url: `/api/widgets/beszel/${widget.id}/test`,
+      payload: {
+        config: { ...widget.config, url: "http://untrusted-beszel.test:8090" },
+        credentials: { username: "admin@example.com" },
+      },
+    });
+    assert.equal(foreignTest.statusCode, 502);
+    assert.equal(mock.calls.length, callCount);
+
+    const changedWidget = { ...widget, config: { ...widget.config, url: "http://untrusted-beszel.test:8090" } };
+    assert.equal((await app.inject({
+      method: "PUT", url: "/api/dashboard",
+      payload: { ...initial, widgets: [...initial.widgets, changedWidget] },
+    })).statusCode, 200);
+    assert.deepEqual((await app.inject({
+      method: "GET", url: `/api/widgets/${widget.id}/credentials`,
+    })).json(), { username: "", passwordConfigured: false });
+    assert.equal((await app.inject({ method: "GET", url: `/api/widgets/beszel/${widget.id}` })).statusCode, 409);
+    assert.equal(mock.calls.length, callCount);
   } finally {
     await app.close();
     mock.restore();

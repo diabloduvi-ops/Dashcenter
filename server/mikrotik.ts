@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -98,7 +99,7 @@ async function request(path: string, config: MikrotikConfig, credentials: Mikrot
   if (!username || !credentials.password) throw new Error("MikroTik username and password are not configured.");
   let response: Response;
   try {
-    response = await fetch(`${restUrl(config.url)}/${path}`, {
+    response = await fetchWithoutRedirect(`${restUrl(config.url)}/${path}`, {
       method: "GET",
       headers: {
         Accept: "application/json",

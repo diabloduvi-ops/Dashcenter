@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -51,7 +52,7 @@ async function login(config: QBittorrentConfig, credentials: QBittorrentCredenti
   const origin = baseUrl(config.url);
   let response: Response;
   try {
-    response = await fetch(`${origin}/api/v2/auth/login`, {
+    response = await fetchWithoutRedirect(`${origin}/api/v2/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Referer: `${origin}/` },
       body: new URLSearchParams({ username, password: credentials.password }),
@@ -73,7 +74,7 @@ async function login(config: QBittorrentConfig, credentials: QBittorrentCredenti
 async function get(path: string, config: QBittorrentConfig, cookie: string): Promise<string> {
   let response: Response;
   try {
-    response = await fetch(`${baseUrl(config.url)}/api/v2/${path}`, {
+    response = await fetchWithoutRedirect(`${baseUrl(config.url)}/api/v2/${path}`, {
       headers: { Accept: "application/json", Cookie: cookie, Referer: `${baseUrl(config.url)}/` },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });

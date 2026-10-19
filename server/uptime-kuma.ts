@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -184,7 +185,7 @@ async function load(config: UptimeKumaConfig, credentials: UptimeKumaCredentials
   if (!apiKey) throw new Error("Uptime Kuma API key is required.");
   let response: Response;
   try {
-    response = await fetch(metricsUrl(config.url), {
+    response = await fetchWithoutRedirect(metricsUrl(config.url), {
       method: "GET",
       headers: {
         Accept: "text/plain",

@@ -4,6 +4,19 @@ All notable Dashcenter changes are recorded here. The project follows [Semantic 
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-19
+
+### Security
+
+- Kept saved integration credentials tied to their configured destination. Testing a different URL now requires entering credentials explicitly; changing a saved destination clears its stored credentials. Integration requests reject redirects.
+- Removed Docker container inspect from the bundled gateway. Container health now uses the limited container list endpoint.
+- Added a Content Security Policy and revoked all other administrator sessions when the password changes.
+- Restricted `TRUST_PROXY` to explicit trusted proxy IP addresses or CIDR ranges. Boolean `true` is no longer accepted.
+
+### Changed
+
+- Kept the existing `/data` volume and dashboard data format; connections whose destination changes need credentials entered again.
+
 ## [1.0.4] - 2026-10-13
 
 ### Changed

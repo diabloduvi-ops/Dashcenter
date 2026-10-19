@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -45,7 +46,7 @@ async function login(config: NginxProxyManagerConfig, credentials: NginxProxyMan
   if (!identity || !credentials.password) throw new Error("Nginx Proxy Manager identity and password are required.");
   let response: Response;
   try {
-    response = await fetch(`${apiUrl(config.url)}/tokens`, {
+    response = await fetchWithoutRedirect(`${apiUrl(config.url)}/tokens`, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({ identity, secret: credentials.password }),
@@ -68,7 +69,7 @@ async function login(config: NginxProxyManagerConfig, credentials: NginxProxyMan
 async function getItems(path: string, config: NginxProxyManagerConfig, token: string, label: string): Promise<NpmItem[]> {
   let response: Response;
   try {
-    response = await fetch(`${apiUrl(config.url)}/${path}`, {
+    response = await fetchWithoutRedirect(`${apiUrl(config.url)}/${path}`, {
       method: "GET",
       headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

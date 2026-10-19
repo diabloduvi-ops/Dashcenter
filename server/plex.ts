@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 import type { MediaActivity, MediaActivitySession, MediaPlayMethod } from "../shared/media-activity.js";
 import { fetchRegisteredMediaArtwork, registerMediaArtwork, type MediaArtwork } from "./media-artwork.js";
@@ -51,7 +52,7 @@ async function request(
   if (!token) throw new Error("Plex token is not configured.");
   let response: Response;
   try {
-    response = await fetch(`${baseUrl(config.url)}${path}`, {
+    response = await fetchWithoutRedirect(`${baseUrl(config.url)}${path}`, {
       method: "GET",
       headers: {
         Accept: "application/json",

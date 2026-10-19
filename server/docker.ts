@@ -156,16 +156,19 @@ export async function listDockerContainers(connection: DockerConnection): Promis
   });
 }
 
-export async function inspectDockerContainer(
+export async function getDockerContainerStatus(
   connection: DockerConnection,
   container: string,
 ): Promise<{ running: boolean; health: string; message: string }> {
-  const encoded = encodeURIComponent(container);
-  const raw = JSON.parse(await dockerRequest(connection, `/containers/${encoded}/json`)) as {
-    State?: { Running?: unknown; Status?: unknown; Health?: { Status?: unknown } };
-  };
-  const running = raw.State?.Running === true;
-  const health = typeof raw.State?.Health?.Status === "string" ? raw.State.Health.Status : "unknown";
-  const state = typeof raw.State?.Status === "string" ? raw.State.Status : running ? "running" : "stopped";
+  const wanted = container.replace(/^\/+/, "").toLowerCase();
+  if (!wanted) throw new Error("Docker container name or ID is required.");
+  const containers = await listDockerContainers(connection);
+  const named = containers.filter((item) => item.names.some((name) => name.toLowerCase() === wanted));
+  const matches = named.length ? named : containers.filter((item) => item.id.toLowerCase().startsWith(wanted));
+  if (matches.length !== 1) throw new Error(matches.length ? "Docker container ID is ambiguous." : "Docker container was not found.");
+  const selected = matches[0];
+  const state = selected.state.toLowerCase();
+  const running = state === "running";
+  const health = selected.health;
   return { running, health, message: health !== "unknown" ? `${state} (${health})` : state };
 }

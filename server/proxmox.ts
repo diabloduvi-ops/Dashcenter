@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -76,7 +77,7 @@ async function request(path: string, config: ProxmoxConfig, credentials: Proxmox
   if (!tokenId || !tokenSecret) throw new Error("Proxmox API token ID and secret are required.");
   let response: Response;
   try {
-    response = await fetch(`${apiUrl(config.url)}/${path}`, {
+    response = await fetchWithoutRedirect(`${apiUrl(config.url)}/${path}`, {
       method: "GET",
       headers: {
         Accept: "application/json",

@@ -21,4 +21,4 @@ Use the regular issue forms for non-sensitive bugs and feature requests.
 
 Dashcenter stores administrator sessions and integration credentials on the server. Public deployments must use HTTPS and must not expose an unfinished first-run setup. Protect `/data`, keep provider tokens read-only where possible and never expose an unauthenticated Docker API publicly.
 
-The bundled Docker metadata gateway is reachable only inside the Compose network and permits GET requests to `/_ping`, `/version`, `/containers/json` and `/containers/{id}/json`. Do not replace its supplied HAProxy configuration with the upstream broad `CONTAINERS=1` policy.
+The bundled Docker metadata gateway is reachable only inside the Compose network and permits GET requests to `/_ping`, `/version` and `/containers/json`. Container inspect is blocked because it exposes environment variables. Do not replace the supplied HAProxy configuration with the upstream broad `CONTAINERS=1` policy.

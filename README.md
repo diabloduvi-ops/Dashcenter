@@ -4,7 +4,7 @@
 
 # Dashcenter
 
-**Current release: v1.0.4**
+**Current release: v1.0.5**
 
 Dashcenter is a self-hosted start page and service dashboard managed from the browser. It combines links, service status, Docker metadata, native service integrations and flexible widgets in one responsive board without requiring users to maintain YAML for everyday changes.
 
@@ -81,7 +81,7 @@ TRUST_PROXY=false
 SESSION_COOKIE_SECURE=false
 ~~~
 
-For an HTTPS reverse proxy, set **TRUST_PROXY=true** and **SESSION_COOKIE_SECURE=true**. Open **http://your-server:3000**, or the hostname configured in your reverse proxy. The first visitor creates the administrator account.
+For an HTTPS reverse proxy, set **TRUST_PROXY** to that proxy's IP address or CIDR range and set **SESSION_COOKIE_SECURE=true**. Open **http://your-server:3000**, or the hostname configured in your reverse proxy. The first visitor creates the administrator account.
 
 The stack runs **dashboard**, **dockerproxy**, and the external named volume **dashcenter_data**. Keep the same volume name when updating or changing deployment methods.
 
@@ -152,7 +152,7 @@ volumes:
 
 The same definition is kept in [compose.ghcr.yml](compose.ghcr.yml). **pull_policy: always** pulls the current image when Compose redeploys the stack. Existing installations should keep their **dashcenter_data** volume mounted at **/data**.
 
-Use **TRUST_PROXY=true** and **SESSION_COOKIE_SECURE=true** behind HTTPS. Use both values as **false** only on a trusted HTTP LAN or VPN.
+Behind HTTPS, set **TRUST_PROXY** to the trusted proxy's IP address or CIDR range and **SESSION_COOKIE_SECURE=true**. Leave **TRUST_PROXY=false** on direct connections. Use **SESSION_COOKIE_SECURE=false** only on a trusted HTTP LAN or VPN.
 
 ## Build from source
 
@@ -203,7 +203,6 @@ The supplied HAProxy policy accepts GET requests only for:
 - **/_ping**
 - **/version**
 - **/containers/json**
-- **/containers/{id}/json**
 
 All other Docker API routes are denied. The gateway has no published host port and must not be shared with unrelated containers.
 
@@ -214,12 +213,11 @@ You can instead connect Dashcenter to a protected remote Docker API. Keep it on 
 Forward the chosen hostname to **http://docker-host:DASHCENTER_PORT** and use a valid TLS certificate. Set:
 
 ~~~dotenv
-TRUST_PROXY=true
+TRUST_PROXY=172.20.0.5
 SESSION_COOKIE_SECURE=true
 ~~~
 
-For Nginx Proxy Manager, Caddy, Traefik or another proxy, preserve the original host and forwarded protocol headers. If login immediately returns to the login screen, verify that the cookie setting matches the actual HTTP or HTTPS connection.
-When **TRUST_PROXY=true**, accept traffic on the Dashcenter port only from that trusted proxy; forwarded client addresses are also used for login throttling.
+Replace the example IP with the actual address of your Nginx Proxy Manager, Caddy, Traefik or other reverse proxy as seen by Dashcenter. A comma-separated list of IP addresses or CIDR ranges is also accepted. Boolean **TRUST_PROXY=true** is rejected because it would trust client-supplied forwarding headers. Preserve the original host and forwarded protocol headers. If login immediately returns to the login screen, verify that the cookie setting matches the actual HTTP or HTTPS connection. Forwarded client addresses from the trusted proxy are used for login throttling.
 
 ## Persistent data and backups
 

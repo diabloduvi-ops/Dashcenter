@@ -706,6 +706,18 @@ function replaceDashboardRows(database: AppDatabase, dashboard: Omit<DashboardDa
   database.prepare("DELETE FROM service_credentials WHERE service_id NOT IN (SELECT id FROM dashboard_services WHERE plugin_config IS NOT NULL)").run();
 }
 
+function credentialDestinations(dashboard: DashboardData): { services: Map<string, string>; widgets: Map<string, string> } {
+  const services = new Map<string, string>();
+  for (const service of dashboard.groups.flatMap((group) => group.services)) {
+    if (service.plugin) services.set(service.id, `${service.plugin.type}\0${String(service.plugin.config.url ?? "")}`);
+  }
+  const widgets = new Map<string, string>();
+  for (const widget of dashboard.widgets) {
+    widgets.set(widget.id, `${widget.type}\0${widget.type === "beszel" ? String(widget.config.url ?? "") : ""}`);
+  }
+  return { services, widgets };
+}
+
 /** Run a dashboard write, bump its revision, and save a restorable snapshot atomically. */
 export function mutateDashboard(
   database: AppDatabase,
@@ -714,10 +726,18 @@ export function mutateDashboard(
 ): DashboardData {
   database.exec("BEGIN IMMEDIATE");
   try {
+    const previousDestinations = credentialDestinations(readDashboard(database));
     mutation(database);
     synchronizeDashboardGridRows(database);
     setRevision(database, currentRevision(database) + 1);
     const dashboard = readDashboard(database);
+    const nextDestinations = credentialDestinations(dashboard);
+    for (const [id, destination] of previousDestinations.services) {
+      if (nextDestinations.services.get(id) !== destination) deleteServiceCredentials(database, id);
+    }
+    for (const [id, destination] of previousDestinations.widgets) {
+      if (nextDestinations.widgets.get(id) !== destination) deleteWidgetCredentials(database, id);
+    }
     insertRevision(database, label, dashboard);
     database.exec("COMMIT");
     return dashboard;

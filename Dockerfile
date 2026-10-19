@@ -15,7 +15,7 @@ COPY public ./public
 RUN pnpm build
 
 FROM node:24-alpine AS runtime
-ARG DASHCENTER_VERSION=1.0.4
+ARG DASHCENTER_VERSION=1.0.5
 ARG DASHCENTER_REVISION=unknown
 
 LABEL org.opencontainers.image.source="https://github.com/diabloduvi-ops/Dashcenter" \

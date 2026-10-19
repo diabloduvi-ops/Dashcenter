@@ -1,7 +1,7 @@
 import type { DashboardService, DockerConnection, ServiceStatus } from "../shared/types.js";
 import type { AppDatabase } from "./database.js";
 import { getServiceCredentials, readDashboard, updateServiceStatuses } from "./database.js";
-import { inspectDockerContainer } from "./docker.js";
+import { getDockerContainerStatus } from "./docker.js";
 import { fetchUptimeKumaPlugin, type UptimeKumaCredentials } from "./uptime-kuma.js";
 
 export interface ServiceHealthUpdate {
@@ -137,7 +137,7 @@ export async function checkServiceHealth(
   }
 
   try {
-    const result = await inspectDockerContainer(connection, service.container);
+    const result = await getDockerContainerStatus(connection, service.container);
     const isHealthy = result.running && result.health !== "unhealthy";
     return {
       id: service.id,
