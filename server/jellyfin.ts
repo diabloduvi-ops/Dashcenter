@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 import type { MediaActivity, MediaActivitySession, MediaPlayMethod } from "../shared/media-activity.js";
 import { fetchRegisteredMediaArtwork, registerMediaArtwork, type MediaArtwork } from "./media-artwork.js";
@@ -66,7 +67,7 @@ async function request(url: string, credentials: JellyfinCredentials): Promise<u
   if (!apiKey) throw new Error("Jellyfin API key is not configured.");
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetchWithoutRedirect(url, {
       method: "GET",
       headers: {
         Accept: "application/json",

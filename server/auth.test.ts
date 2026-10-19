@@ -140,3 +140,60 @@ test("repeated login failures are throttled before further password checks", asy
     else process.env.DEV_BYPASS_AUTH = previousBypass;
   }
 });
+
+test("changing a password revokes other sessions and rotates the current session", async () => {
+  const previousBypass = process.env.DEV_BYPASS_AUTH;
+  delete process.env.DEV_BYPASS_AUTH;
+  const dataDirectory = mkdtempSync(path.join(tmpdir(), "dashcenter-password-rotation-"));
+  const database = createDatabase(":memory:");
+  const app = await buildApp({ database, dataDirectory, serveFrontend: false, logger: false, healthRefreshIntervalMs: false });
+
+  try {
+    const setup = await app.inject({
+      method: "POST", url: "/api/auth/setup",
+      payload: { username: "admin", password: "correct-horse-battery-staple" },
+    });
+    const firstCookie = String(setup.headers["set-cookie"]).split(";", 1)[0];
+    const login = await app.inject({
+      method: "POST", url: "/api/auth/login",
+      payload: { username: "admin", password: "correct-horse-battery-staple" },
+    });
+    assert.equal(login.statusCode, 200);
+    const secondCookie = String(login.headers["set-cookie"]).split(";", 1)[0];
+    assert.notEqual(firstCookie, secondCookie);
+
+    const incorrect = await app.inject({
+      method: "PUT", url: "/api/auth/password", headers: { cookie: firstCookie },
+      payload: { currentPassword: "incorrect", newPassword: "another-strong-password" },
+    });
+    assert.equal(incorrect.statusCode, 400);
+    assert.equal((await app.inject({ method: "GET", url: "/api/auth/state", headers: { cookie: secondCookie } })).json().authenticated, true);
+
+    const changed = await app.inject({
+      method: "PUT", url: "/api/auth/password", headers: { cookie: firstCookie },
+      payload: { currentPassword: "correct-horse-battery-staple", newPassword: "another-strong-password" },
+    });
+    assert.equal(changed.statusCode, 200);
+    const rotatedCookie = String(changed.headers["set-cookie"]).split(";", 1)[0];
+    assert.notEqual(rotatedCookie, firstCookie);
+    for (const cookie of [firstCookie, secondCookie]) {
+      assert.equal((await app.inject({ method: "GET", url: "/api/auth/state", headers: { cookie } })).json().authenticated, false);
+      assert.equal((await app.inject({ method: "GET", url: "/api/groups", headers: { cookie } })).statusCode, 401);
+    }
+    assert.equal((await app.inject({ method: "GET", url: "/api/auth/state", headers: { cookie: rotatedCookie } })).json().authenticated, true);
+    assert.equal((await app.inject({
+      method: "POST", url: "/api/auth/login",
+      payload: { username: "admin", password: "correct-horse-battery-staple" },
+    })).statusCode, 401);
+    assert.equal((await app.inject({
+      method: "POST", url: "/api/auth/login",
+      payload: { username: "admin", password: "another-strong-password" },
+    })).statusCode, 200);
+  } finally {
+    await app.close();
+    database.close();
+    rmSync(dataDirectory, { recursive: true, force: true });
+    if (previousBypass === undefined) delete process.env.DEV_BYPASS_AUTH;
+    else process.env.DEV_BYPASS_AUTH = previousBypass;
+  }
+});

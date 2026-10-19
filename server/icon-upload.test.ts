@@ -95,7 +95,7 @@ test("authenticated image uploads share one limit across all three routes and se
   const previousBypass = process.env.DEV_BYPASS_AUTH;
   const previousTrustProxy = process.env.TRUST_PROXY;
   delete process.env.DEV_BYPASS_AUTH;
-  process.env.TRUST_PROXY = "true";
+  process.env.TRUST_PROXY = "127.0.0.1";
   const dataDirectory = mkdtempSync(path.join(tmpdir(), "dashcenter-upload-limit-"));
   const database = createDatabase(":memory:");
   const app = await buildApp({ database, dataDirectory, serveFrontend: false, logger: false, healthRefreshIntervalMs: false });

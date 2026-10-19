@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -63,7 +64,7 @@ async function request(url: string, credentials: PortainerCredentials): Promise<
   if (!apiKey) throw new Error("Portainer access token is not configured.");
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetchWithoutRedirect(url, {
       method: "GET",
       headers: { Accept: "application/json", "X-API-Key": apiKey },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

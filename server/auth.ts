@@ -128,7 +128,7 @@ export interface AuthController {
   setup(username: string, displayName: string, password: string, reply: FastifyReply): AuthState;
   login(username: string, password: string, clientIp: string, reply: FastifyReply): AuthState | undefined;
   logout(request: FastifyRequest, reply: FastifyReply): void;
-  changePassword(request: FastifyRequest, currentPassword: string, newPassword: string): boolean;
+  changePassword(request: FastifyRequest, currentPassword: string, newPassword: string, reply: FastifyReply): boolean;
   requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void>;
 }
 
@@ -232,7 +232,7 @@ export function createAuthController(database: AppDatabase): AuthController {
       });
     },
 
-    changePassword(request, currentPassword, newPassword) {
+    changePassword(request, currentPassword, newPassword, reply) {
       const sessionUser = readSessionUser(database, request.cookies[COOKIE_NAME]);
       if (!sessionUser) return false;
       const user = database
@@ -246,9 +246,18 @@ export function createAuthController(database: AppDatabase): AuthController {
 
       const salt = randomBytes(16);
       const passwordHash = hashPassword(newPassword, salt);
-      database
-        .prepare("UPDATE users SET password_salt = ?, password_hash = ? WHERE id = ?")
-        .run(salt.toString("base64"), passwordHash.toString("base64"), user.id);
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        database
+          .prepare("UPDATE users SET password_salt = ?, password_hash = ? WHERE id = ?")
+          .run(salt.toString("base64"), passwordHash.toString("base64"), user.id);
+        database.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
+        createSession(database, user.id, reply);
+        database.exec("COMMIT");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
       return true;
     },
 

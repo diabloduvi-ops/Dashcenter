@@ -87,10 +87,23 @@ import {
   widgetSchema,
 } from "./validation.js";
 import { createUploadPruner, detectImageExtension } from "./upload-storage.js";
+import { trustedProxyAddresses } from "./trusted-proxy.js";
 import { fetchWeather } from "./weather.js";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const IMAGE_UPLOADS_PER_MINUTE = 12;
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: http: https:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
 const MAX_IMPORT_SOURCE_BYTES = MAX_UPLOAD_BYTES;
 const MAX_IMPORT_BODY_BYTES = MAX_IMPORT_SOURCE_BYTES * 2 + 64 * 1024;
 const IMAGE_EXTENSIONS: Record<string, string> = {
@@ -356,7 +369,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const app = Fastify({
     logger: options.logger ?? process.env.NODE_ENV !== "test",
     bodyLimit: MAX_UPLOAD_BYTES,
-    trustProxy: ["1", "true", "yes"].includes(process.env.TRUST_PROXY?.toLowerCase() ?? ""),
+    trustProxy: trustedProxyAddresses(),
   });
   const auth = createAuthController(database);
   const isAdmin = (request: FastifyRequest) => {
@@ -426,6 +439,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("Content-Security-Policy", CONTENT_SECURITY_POLICY);
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Referrer-Policy", "same-origin");
     reply.header("X-Frame-Options", "DENY");
@@ -528,7 +542,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         newPassword: z.string().min(8).max(512),
       })
       .parse(request.body);
-    if (!auth.changePassword(request, body.currentPassword, body.newPassword)) {
+    if (!auth.changePassword(request, body.currentPassword, body.newPassword, reply)) {
       return reply.code(400).send({ error: "The current password is incorrect." });
     }
     return { ok: true };
@@ -863,62 +877,66 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!service.plugin || service.plugin.type !== body.type) {
       return reply.code(409).send({ error: "Save the selected plugin before testing it" });
     }
+    const requestedUrl = "url" in body.config ? body.config.url : undefined;
+    const storedForTest = requestedUrl === undefined || requestedUrl === service.plugin.config.url
+      ? getServiceCredentials(database, id, body.type)
+      : undefined;
     try {
       if (body.type === "beszel") {
-        const stored = getServiceCredentials(database, id, "beszel");
+        const stored = storedForTest;
         const password = body.credentials.clearPassword ? "" : body.credentials.password || stored?.password || "";
         return await testBeszelConnection(body.config, { username: body.credentials.username, password });
       }
       if (body.type === "portainer") {
-        const stored = getServiceCredentials(database, id, "portainer");
+        const stored = storedForTest;
         const apiKey = body.credentials.clearApiKey ? "" : body.credentials.apiKey?.trim() || stored?.password || "";
         return await testPortainerConnection(body.config, { apiKey });
       }
       if (body.type === "proxmox") {
-        const stored = getServiceCredentials(database, id, "proxmox");
+        const stored = storedForTest;
         const tokenSecret = body.credentials.clearPassword ? "" : body.credentials.password || stored?.password || "";
         const tokenId = body.credentials.username || stored?.username || "";
         return await testProxmoxConnection(body.config, { tokenId, tokenSecret });
       }
       if (body.type === "uptime-kuma") {
-        const stored = getServiceCredentials(database, id, "uptime-kuma");
+        const stored = storedForTest;
         const apiKey = body.credentials.clearApiKey ? "" : body.credentials.apiKey?.trim() || stored?.password || "";
         return await testUptimeKumaConnection(body.config, { apiKey });
       }
       if (body.type === "jellyfin") {
-        const stored = getServiceCredentials(database, id, "jellyfin");
+        const stored = storedForTest;
         const apiKey = body.credentials.clearApiKey ? "" : body.credentials.apiKey?.trim() || stored?.password || "";
         return await testJellyfinConnection(body.config, { apiKey });
       }
       if (body.type === "plex") {
-        const stored = getServiceCredentials(database, id, "plex");
+        const stored = storedForTest;
         const token = body.credentials.clearToken ? "" : body.credentials.token?.trim() || stored?.password || "";
         return await testPlexConnection(body.config, { token });
       }
       if (body.type === "mikrotik") {
-        const stored = getServiceCredentials(database, id, "mikrotik");
+        const stored = storedForTest;
         const password = body.credentials.clearPassword ? "" : body.credentials.password || stored?.password || "";
         const username = body.credentials.username || stored?.username || "";
         return await testMikrotikConnection(body.config, { username, password });
       }
       if (body.type === "qbittorrent") {
-        const stored = getServiceCredentials(database, id, "qbittorrent");
+        const stored = storedForTest;
         const password = body.credentials.clearPassword ? "" : body.credentials.password || stored?.password || "";
         const username = body.credentials.username || stored?.username || "";
         return await testQBittorrentConnection(body.config, { username, password });
       }
       if (body.type === "nginx-proxy-manager") {
-        const stored = getServiceCredentials(database, id, "nginx-proxy-manager");
+        const stored = storedForTest;
         const password = body.credentials.clearPassword ? "" : body.credentials.password || stored?.password || "";
         const identity = body.credentials.username || stored?.username || "";
         return await testNginxProxyManagerConnection(body.config, { identity, password });
       }
       if (body.type === "steam-wishlist") {
-        const stored = getServiceCredentials(database, id, "steam-wishlist");
+        const stored = storedForTest;
         const steamId = body.credentials.username || stored?.username || "";
         return await testSteamWishlistConnection(body.config, { steamId });
       }
-      const stored = getServiceCredentials(database, id, body.type);
+      const stored = storedForTest;
       const apiKey = body.credentials.clearApiKey ? "" : body.credentials.apiKey?.trim() || stored?.password || "";
       if (body.type === "lidarr") return await testLidarrConnection(body.config, { apiKey });
       if (body.type === "prowlarr") return await testProwlarrConnection(body.config, { apiKey });
@@ -1135,7 +1153,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       config: beszelConfigSchema,
       credentials: beszelCredentialsSchema,
     }).parse(request.body);
-    const stored = getWidgetCredentials(database, id);
+    const stored = body.config.url === widget.config.url ? getWidgetCredentials(database, id) : undefined;
     const password = body.credentials.clearPassword
       ? ""
       : body.credentials.password || stored?.password || "";

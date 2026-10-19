@@ -38,8 +38,10 @@ function mockBeszel() {
 
 function mockPortainer() {
   const original = globalThis.fetch;
-  globalThis.fetch = async (input) => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = async (input, init) => {
     const url = String(input);
+    calls.push({ url, init });
     if (url.endsWith("/api/endpoints")) {
       return new Response(JSON.stringify([{ Id: 7, Name: "Home Docker", Status: 1 }]), {
         status: 200,
@@ -60,7 +62,7 @@ function mockPortainer() {
     }
     return new Response(JSON.stringify({ message: "not found" }), { status: 404 });
   };
-  return () => { globalThis.fetch = original; };
+  return { calls, restore: () => { globalThis.fetch = original; } };
 }
 
 function mockJellyfin() {
@@ -210,7 +212,7 @@ test("Portainer service plugins store only server-side tokens and return contain
   const database = createDatabase(path.join(dataDirectory, "app.db"));
   const previousBypass = process.env.DEV_BYPASS_AUTH;
   process.env.DEV_BYPASS_AUTH = "1";
-  const restoreFetch = mockPortainer();
+  const mock = mockPortainer();
   const app = await buildApp({ database, dataDirectory, serveFrontend: false, logger: false, healthRefreshIntervalMs: false });
 
   try {
@@ -256,7 +258,39 @@ test("Portainer service plugins store only server-side tokens and return contain
     });
     assert.equal(tested.statusCode, 200);
     assert.deepEqual(tested.json().endpoints, [{ id: "7", name: "Home Docker", status: "up" }]);
+    assert.equal(new Headers(mock.calls[0].init?.headers).get("X-API-Key"), "portainer-secret-token");
+    assert.ok(mock.calls.every((call) => call.init?.redirect === "error"));
+    assert.equal((await app.inject({
+      method: "PUT", url: "/api/dashboard",
+      payload: { ...initial, settings: { ...initial.settings, title: "Lab dashboard" }, groups },
+    })).statusCode, 200);
+    assert.equal(getServiceCredentials(database, service.id)?.password, "portainer-secret-token");
 
+    const callCount = mock.calls.length;
+    const foreignTest = await app.inject({
+      method: "POST",
+      url: `/api/services/${service.id}/plugin/test`,
+      payload: { type: "portainer", config: { url: "http://untrusted-plugin.test:9000", endpointId: "7" }, credentials: {} },
+    });
+    assert.equal(foreignTest.statusCode, 502);
+    assert.equal(mock.calls.length, callCount);
+
+    const changedGroups = groups.map((group) => ({
+      ...group,
+      services: group.services.map((item) => item.id === service.id && item.plugin
+        ? { ...item, plugin: { ...item.plugin, config: { ...item.plugin.config, url: "http://untrusted-plugin.test:9000" } } }
+        : item),
+    }));
+    assert.equal((await app.inject({ method: "PUT", url: "/api/dashboard", payload: { ...initial, groups: changedGroups } })).statusCode, 200);
+    assert.equal(getServiceCredentials(database, service.id), undefined);
+    const withoutCredentials = await app.inject({ method: "GET", url: `/api/services/${service.id}/plugin` });
+    assert.equal(withoutCredentials.statusCode, 409);
+    assert.equal(mock.calls.length, callCount);
+
+    assert.equal((await app.inject({ method: "PUT", url: "/api/dashboard", payload: { ...initial, groups } })).statusCode, 200);
+    assert.equal((await app.inject({
+      method: "PUT", url: `/api/services/${service.id}/plugin/credentials`, payload: { apiKey: "portainer-secret-token" },
+    })).statusCode, 200);
     const pluginResponse = await app.inject({ method: "GET", url: `/api/services/${service.id}/plugin` });
     assert.equal(pluginResponse.statusCode, 200);
     const payload = pluginResponse.json();
@@ -265,7 +299,7 @@ test("Portainer service plugins store only server-side tokens and return contain
     assert.equal(payload.stacks, 2);
   } finally {
     await app.close();
-    restoreFetch();
+    mock.restore();
     database.close();
     rmSync(dataDirectory, { recursive: true, force: true });
     if (previousBypass === undefined) delete process.env.DEV_BYPASS_AUTH;

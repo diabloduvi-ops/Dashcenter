@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -35,7 +36,7 @@ async function request(config: ProwlarrConfig, credentials: ProwlarrCredentials)
   url.searchParams.set("apikey", apiKey);
   let response: Response;
   try {
-    response = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    response = await fetchWithoutRedirect(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   } catch {
     throw new Error("Could not reach Prowlarr.");
   }

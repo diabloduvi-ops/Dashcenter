@@ -1,3 +1,4 @@
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const TOKEN_TTL_MS = 20 * 60 * 1000;
@@ -57,7 +58,7 @@ async function responseJson(response: Response): Promise<unknown> {
 async function request(url: string, init: RequestInit): Promise<{ response: Response; data: unknown }> {
   let response: Response;
   try {
-    response = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    response = await fetchWithoutRedirect(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   } catch {
     throw new Error("Could not reach Beszel.");
   }
