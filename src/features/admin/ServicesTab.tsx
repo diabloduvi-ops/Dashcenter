@@ -282,6 +282,7 @@ export function ServicesTab({ data, onCommit }: ServicesTabProps) {
       gapBefore: 0,
       position: data.groups.length,
       visible: true,
+      visibility: "everyone",
       services: [],
     };
     await commit({ ...data, groups: [...data.groups, group] }, "Group added");
@@ -318,10 +319,10 @@ export function ServicesTab({ data, onCommit }: ServicesTabProps) {
     }
   }
 
-  async function toggleGroup(visible: boolean) {
+  async function setGroupVisibility(visibility: "everyone" | "signed-in" | "hidden") {
     if (!selectedGroup) return;
-    const groups = data.groups.map((group) => group.id === selectedGroup.id ? { ...group, visible } : group);
-    await commit({ ...data, groups }, visible ? "Group shown" : "Group hidden");
+    const groups = data.groups.map((group) => group.id === selectedGroup.id ? { ...group, visibility, visible: visibility !== "hidden" } : group);
+    await commit({ ...data, groups }, "Group visibility saved");
   }
 
   async function deleteGroup() {
@@ -805,7 +806,7 @@ export function ServicesTab({ data, onCommit }: ServicesTabProps) {
                         )}
                         <span>
                           <strong>{group.name}</strong>
-                          <small>{group.services.length} {group.services.length === 1 ? "service" : "services"} · {group.visible ? "Published" : "Hidden"}</small>
+                          <small>{group.services.length} {group.services.length === 1 ? "service" : "services"} · {group.visibility === "signed-in" ? "Signed-in only" : group.visible ? "Everyone" : "Hidden"}</small>
                         </span>
                       </button>
                       {group.visible ? <Eye size={14} /> : <EyeOff size={14} />}
@@ -843,7 +844,11 @@ export function ServicesTab({ data, onCommit }: ServicesTabProps) {
               onApply={(icon) => saveGroup(icon)}
               onUploadingChange={setGroupIconUploading}
             />
-            <ToggleRow title="Visible on dashboard" checked={selectedGroup.visible} onChange={toggleGroup} disabled={busy || groupIconUploading} />
+            <SelectField label="Group visibility" value={selectedGroup.visibility ?? (selectedGroup.visible ? "everyone" : "hidden")} onChange={(value) => void setGroupVisibility(value as "everyone" | "signed-in" | "hidden")} disabled={busy || groupIconUploading}>
+              <option value="everyone">Everyone</option>
+              <option value="signed-in">Signed-in only</option>
+              <option value="hidden">Hidden</option>
+            </SelectField>
             <div className="admin-inline-actions admin-inline-actions--spread">
               <Button variant="danger" type="button" onClick={() => selectedGroup && setPendingDelete({ type: "group", name: selectedGroup.name })} disabled={busy || groupIconUploading}><Trash2 size={15} /> Delete</Button>
               <Button variant="primary" type="button" onClick={() => void saveGroup()} disabled={!groupName.trim() || busy || groupIconUploading}>Save group</Button>

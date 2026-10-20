@@ -28,7 +28,9 @@ import {
 } from "./calendar-agenda.js";
 import {
   fetchFeedReader,
+  MAX_FEED_SOURCES,
   normalizeFeedReaderUrl,
+  storedFeedSources,
   testFeedReaderConnection,
 } from "./feed-reader.js";
 import { fetchJellyfinArtwork, fetchJellyfinPlugin, testJellyfinConnection } from "./jellyfin.js";
@@ -45,6 +47,7 @@ import { fetchSystemResources, selectSystemResourceDockerConnection } from "./sy
 import { fetchUptimeKumaPlugin, testUptimeKumaConnection } from "./uptime-kuma.js";
 import { fetchCustomApiWidget } from "./custom-api.js";
 import { publishedDashboard } from "./public-dashboard.js";
+import { createStarterDashboard } from "./seed.js";
 import {
   createDatabase,
   deleteServiceCredentials,
@@ -180,6 +183,8 @@ const calendarAgendaTestSchema = z.object({
 const feedReaderCredentialsSchema = z.object({
   feedUrl: z.string().max(4_096).optional(),
   clearFeedUrl: z.boolean().optional().default(false),
+  add: z.object({ name: z.string().trim().max(120).default(""), feedUrl: z.string().max(4_096) }).optional(),
+  removeId: z.string().max(100).optional(),
 });
 
 const feedReaderTestSchema = z.object({
@@ -372,12 +377,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     trustProxy: trustedProxyAddresses(),
   });
   const auth = createAuthController(database);
+  const privacySettings = database.prepare("SELECT payload FROM dashboard_settings WHERE id = 1");
+  const requiresSignIn = () => {
+    const row = privacySettings.get() as { payload: string } | undefined;
+    return row ? JSON.parse(row.payload).requireSignIn === true : false;
+  };
   const isAdmin = (request: FastifyRequest) => {
     const state = auth.state(request);
     return state.authenticated || state.devBypass === true;
   };
   const publishedService = (id: string) => readDashboard(database).groups.some(
-    (group) => group.visible && group.services.some((service) => service.id === id && service.visible),
+    (group) => group.visible && (group.visibility ?? "everyone") === "everyone" && group.services.some((service) => service.id === id && service.visible),
   );
   const uploadPruner = createUploadPruner(
     database,
@@ -402,6 +412,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   try {
     await app.register(cookie);
     await app.register(rateLimit, { global: false });
+    app.addHook("preHandler", async (request, reply) => {
+      if (!requiresSignIn() || isAdmin(request)) return;
+      const pathname = request.url.split("?", 1)[0];
+      if (pathname === "/api/healthz" || pathname === "/api/auth/state" ||
+          pathname === "/api/auth/setup" || pathname === "/api/auth/login" ||
+          pathname === "/api/auth/logout") return;
+      if (pathname.startsWith("/api/") || pathname.startsWith("/uploads/")) {
+        return reply.code(401).send({ error: "Sign in to view this dashboard" });
+      }
+    });
     const checkImageUploadRate = app.createRateLimit({
       max: IMAGE_UPLOADS_PER_MINUTE,
       timeWindow: "1 minute",
@@ -502,13 +522,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.get("/api/auth/state", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
-    return auth.state(request);
+    return { ...auth.state(request), requireSignIn: requiresSignIn() };
   });
 
   app.post("/api/auth/setup", async (request, reply) => {
     const body = authSetupSchema.parse(request.body);
     try {
-      return auth.setup(body.username, body.displayName, body.password, reply);
+      const state = auth.setup(body.username, body.displayName, body.password, reply);
+      if (body.starter && readDashboard(database).revision === 1) {
+        replaceDashboard(database, createStarterDashboard(body.starter), `${body.starter === "empty" ? "Empty" : "Demo"} starter dashboard`);
+        database.prepare("DELETE FROM revisions WHERE label = 'Initial dashboard'").run();
+      }
+      return state;
     } catch (error) {
       if (error instanceof Error && error.message === "SETUP_COMPLETE") {
         return reply.code(409).send({ error: "Dashboard setup is already complete." });
@@ -565,6 +590,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         columnStart: z.number().int().min(0).max(6).optional(),
         gapBefore: z.number().int().min(0).max(160).optional(),
         direction: z.enum(["horizontal", "vertical"]).optional(),
+        visibility: z.enum(["everyone", "signed-in", "hidden"]).optional(),
         position: z.number().int().nonnegative().optional(),
         visible: z.boolean().optional(),
       })
@@ -579,11 +605,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       direction: body.direction ?? "horizontal",
       position: body.position ?? current.groups.length,
       visible: body.visible ?? true,
+      visibility: body.visibility,
       services: [],
     });
     return mutateDashboard(database, `Group “${group.name}” added`, (transaction) => {
       transaction
-        .prepare("INSERT INTO dashboard_groups (id, name, icon, column_span, column_start, gap_before, direction, position, visible) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .prepare("INSERT INTO dashboard_groups (id, name, icon, column_span, column_start, gap_before, direction, position, visible, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .run(
           group.id,
           group.name,
@@ -594,6 +621,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           group.direction,
           group.position,
           group.visible ? 1 : 0,
+          group.visibility,
         );
     });
   });
@@ -610,14 +638,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         columnStart: z.number().int().min(0).max(6).optional(),
         gapBefore: z.number().int().min(0).max(160).optional(),
         direction: z.enum(["horizontal", "vertical"]).optional(),
+        visibility: z.enum(["everyone", "signed-in", "hidden"]).optional(),
         position: z.number().int().nonnegative().optional(),
         visible: z.boolean().optional(),
       })
       .parse(request.body);
-    const group = groupSchema.parse({ ...existing, ...body });
+    const visibility = body.visibility ?? (body.visible === undefined ? existing.visibility : body.visible ? "everyone" : "hidden");
+    const group = groupSchema.parse({
+      ...existing,
+      ...body,
+      visibility,
+      visible: body.visibility ? body.visibility !== "hidden" : body.visible ?? existing.visible,
+    });
     return mutateDashboard(database, `Group “${group.name}” updated`, (transaction) => {
       transaction
-        .prepare("UPDATE dashboard_groups SET name = ?, icon = ?, column_span = ?, column_start = ?, gap_before = ?, direction = ?, position = ?, visible = ? WHERE id = ?")
+        .prepare("UPDATE dashboard_groups SET name = ?, icon = ?, column_span = ?, column_start = ?, gap_before = ?, direction = ?, position = ?, visible = ?, visibility = ? WHERE id = ?")
         .run(
           group.name,
           group.icon,
@@ -627,6 +662,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           group.direction,
           group.position,
           group.visible ? 1 : 0,
+          group.visibility,
           id,
         );
     });
@@ -1107,7 +1143,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const widget = findWidget(database, id);
     if (!widget) return reply.code(404).send({ error: "Widget not found" });
     const credentials = getWidgetCredentials(database, id);
-    if (widget.type === "calendar-agenda" || widget.type === "feed-reader") {
+    if (widget.type === "feed-reader") {
+      const sources = storedFeedSources(credentials?.password ?? "");
+      return { feedConfigured: sources.length > 0, sources: sources.map(({ id, name, url }) => ({ id, name: name || new URL(url).hostname })) };
+    }
+    if (widget.type === "calendar-agenda") {
       return { feedConfigured: Boolean(credentials?.password) };
     }
     if (widget.type !== "beszel") return reply.code(404).send({ error: "Widget credentials not found" });
@@ -1132,10 +1172,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (widget.type === "feed-reader") {
       const body = feedReaderCredentialsSchema.parse(request.body);
       const previous = getWidgetCredentials(database, id);
-      const rawFeedUrl = body.clearFeedUrl ? "" : body.feedUrl?.trim() || previous?.password || "";
-      const feedUrl = rawFeedUrl ? normalizeFeedReaderUrl(rawFeedUrl) : "";
-      setWidgetCredentials(database, id, { username: "", password: feedUrl });
-      return { feedConfigured: Boolean(feedUrl) };
+      let sources = body.clearFeedUrl ? [] : storedFeedSources(previous?.password ?? "");
+      if (body.feedUrl?.trim()) sources = [{ id: "legacy", name: "", url: normalizeFeedReaderUrl(body.feedUrl) }];
+      if (body.removeId) sources = sources.filter((source) => source.id !== body.removeId);
+      if (body.add) {
+        const url = normalizeFeedReaderUrl(body.add.feedUrl);
+        if (sources.length >= MAX_FEED_SOURCES) return reply.code(400).send({ error: `A widget can use at most ${MAX_FEED_SOURCES} feeds.` });
+        if (sources.some((source) => source.url === url)) return reply.code(409).send({ error: "This feed is already added." });
+        sources = [...sources, { id: randomUUID(), name: body.add.name, url }];
+      }
+      setWidgetCredentials(database, id, { username: "", password: sources.length ? JSON.stringify(sources) : "" });
+      return { feedConfigured: sources.length > 0, sources: sources.map(({ id, name, url }) => ({ id, name: name || new URL(url).hostname })) };
     }
     if (widget.type !== "beszel") return reply.code(404).send({ error: "Widget credentials not found" });
     const body = beszelCredentialsSchema.parse(request.body);
@@ -1227,11 +1274,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     const body = feedReaderTestSchema.parse(request.body);
     const stored = getWidgetCredentials(database, id);
-    const rawFeedUrl = body.credentials.clearFeedUrl
-      ? ""
-      : body.credentials.feedUrl?.trim() || stored?.password || "";
+    const sources = body.credentials.clearFeedUrl ? [] : storedFeedSources(stored?.password ?? "");
+    const testSources = body.credentials.feedUrl?.trim()
+      ? [{ id: "test", name: "", url: body.credentials.feedUrl }]
+      : body.credentials.add
+        ? [{ id: "test", name: body.credentials.add.name, url: body.credentials.add.feedUrl }]
+        : sources;
     try {
-      return await testFeedReaderConnection(id, body.config, { feedUrl: rawFeedUrl });
+      return await testFeedReaderConnection(id, body.config, { sources: testSources });
     } catch (error) {
       return reply.code(502).send({
         error: error instanceof Error ? error.message : "Feed connection failed",
@@ -1248,7 +1298,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const credentials = getWidgetCredentials(database, id);
     if (!credentials?.password) return reply.code(409).send({ error: "Feed URL is not configured" });
     try {
-      return await fetchFeedReader(id, widget.config, { feedUrl: credentials.password });
+      return await fetchFeedReader(id, widget.config, { sources: storedFeedSources(credentials.password) });
     } catch (error) {
       return reply.code(502).send({
         error: error instanceof Error ? error.message : "Feed request failed",

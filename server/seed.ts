@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: DashboardSettings = withDashboardAppearance({
   columns: 3,
   density: "comfortable",
   openInNewTab: true,
+  requireSignIn: false,
   showSearch: true,
   showClock: true,
   showWeather: true,
@@ -249,6 +250,31 @@ export function createSeedDashboard() {
     widgets: structuredClone(DEFAULT_WIDGETS),
     layout: reconcileDashboardGrid(undefined, DEFAULT_GROUPS, DEFAULT_WIDGETS, DEFAULT_SETTINGS.columns),
     connections: structuredClone(DEFAULT_CONNECTIONS),
+    revision: 1,
+  };
+}
+
+/** Selected during administrator setup; never applied to an existing dashboard. */
+export function createStarterDashboard(starter: "empty" | "demo") {
+  const groups = starter === "demo" ? [
+    group("demo-links", "Example links", 0, [
+      service("example-app", "Example app", "https://example.com/", "Replace this sample with your app", ""),
+      service("example-docs", "Example documentation", "https://example.org/", "A second sample link", ""),
+    ]),
+  ] : [];
+  const widgets = starter === "demo" ? DEFAULT_WIDGETS.filter((widget) => widget.type !== "weather") : [];
+  const settings = {
+    ...structuredClone(DEFAULT_SETTINGS),
+    showSearch: starter === "demo",
+    showClock: starter === "demo",
+    showWeather: false,
+  };
+  return {
+    settings,
+    groups,
+    widgets: structuredClone(widgets),
+    layout: reconcileDashboardGrid(undefined, groups, widgets, settings.columns),
+    connections: [],
     revision: 1,
   };
 }

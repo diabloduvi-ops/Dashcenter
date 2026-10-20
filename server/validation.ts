@@ -66,7 +66,11 @@ export const groupSchema = z.object({
   direction: z.enum(["horizontal", "vertical"]).default("horizontal"),
   position: z.number().int().min(0).max(100_000).default(0),
   visible: z.boolean().default(true),
+  visibility: z.enum(["everyone", "signed-in", "hidden"]).optional(),
   services: z.array(serviceSchema).max(10_000).default([]),
+}).transform((group) => {
+  const visibility = group.visible ? group.visibility ?? "everyone" : "hidden";
+  return { ...group, visibility, visible: visibility !== "hidden" };
 });
 
 const backgroundUrl = z
@@ -143,6 +147,7 @@ const settingsInputSchema = z.object({
   columns: z.number().int().min(1).max(6),
   density: z.enum(["compact", "comfortable"]),
   openInNewTab: z.boolean(),
+  requireSignIn: z.boolean().default(false),
   showSearch: z.boolean(),
   showClock: z.boolean(),
   showWeather: z.boolean(),
@@ -218,6 +223,7 @@ export const authSetupSchema = z.object({
   username: z.string().trim().min(3).max(64).regex(/^[\p{L}\p{N}._-]+$/u, "Use letters, numbers, dots, dashes, or underscores"),
   displayName: z.string().trim().max(100).optional().default(""),
   password: z.string().min(8).max(512),
+  starter: z.enum(["empty", "demo"]).optional(),
 });
 
 export const authLoginSchema = z.object({

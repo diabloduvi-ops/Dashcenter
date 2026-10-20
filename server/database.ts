@@ -16,6 +16,7 @@ import type {
 import { reconcileDashboardGrid } from "../shared/dashboard-grid.js";
 import {
   createSeedDashboard,
+  createStarterDashboard,
   DEFAULT_CONNECTIONS,
   DEFAULT_GROUPS,
   DEFAULT_SETTINGS,
@@ -49,7 +50,8 @@ const SCHEMA = `
     gap_before INTEGER NOT NULL DEFAULT 0 CHECK (gap_before BETWEEN 0 AND 160),
     direction TEXT NOT NULL DEFAULT 'horizontal' CHECK (direction IN ('horizontal', 'vertical')),
     position INTEGER NOT NULL,
-    visible INTEGER NOT NULL DEFAULT 1
+    visible INTEGER NOT NULL DEFAULT 1,
+    visibility TEXT NOT NULL DEFAULT 'everyone' CHECK (visibility IN ('everyone', 'signed-in', 'hidden'))
   );
 
   CREATE TABLE IF NOT EXISTS dashboard_services (
@@ -259,6 +261,10 @@ function migrateSchema(database: AppDatabase): void {
       "ALTER TABLE dashboard_groups ADD COLUMN direction TEXT NOT NULL DEFAULT 'horizontal' CHECK (direction IN ('horizontal', 'vertical'))",
     );
   }
+  if (!groupColumns.some((column) => column.name === "visibility")) {
+    database.exec("ALTER TABLE dashboard_groups ADD COLUMN visibility TEXT NOT NULL DEFAULT 'everyone' CHECK (visibility IN ('everyone', 'signed-in', 'hidden'))");
+    database.exec("UPDATE dashboard_groups SET visibility = 'hidden' WHERE visible = 0");
+  }
 
   const serviceColumns = database
     .prepare("PRAGMA table_info(dashboard_services)")
@@ -346,20 +352,20 @@ function migrateSchema(database: AppDatabase): void {
   migrateBeszelWidgetsToServices(database);
 }
 
-export function createDatabase(filename: string): AppDatabase {
+export function createDatabase(filename: string, initialDashboard?: DashboardData): AppDatabase {
   if (filename !== ":memory:") mkdirSync(path.dirname(filename), { recursive: true, mode: 0o750 });
   const database = new DatabaseSync(filename);
   if (filename !== ":memory:") database.exec("PRAGMA journal_mode = WAL;");
   database.exec(SCHEMA);
   migrateSchema(database);
-  seedDatabase(database);
+  seedDatabase(database, initialDashboard);
   synchronizeDashboardGridRows(database);
   return database;
 }
 
 export function openAppDatabase(dataDirectory = process.env.DATA_DIR || path.resolve(process.cwd(), "data")): AppDatabase {
   mkdirSync(dataDirectory, { recursive: true, mode: 0o750 });
-  return createDatabase(path.join(dataDirectory, "app.db"));
+  return createDatabase(path.join(dataDirectory, "app.db"), createStarterDashboard("empty"));
 }
 
 function insertSettings(database: AppDatabase, settings: DashboardSettings): void {
@@ -370,7 +376,7 @@ function insertSettings(database: AppDatabase, settings: DashboardSettings): voi
 
 function insertGroups(database: AppDatabase, groups: DashboardGroup[]): void {
   const insertGroup = database.prepare(
-    "INSERT INTO dashboard_groups (id, name, icon, column_span, column_start, gap_before, direction, position, visible) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO dashboard_groups (id, name, icon, column_span, column_start, gap_before, direction, position, visible, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
   const insertService = database.prepare(`
     INSERT INTO dashboard_services (
@@ -390,6 +396,7 @@ function insertGroups(database: AppDatabase, groups: DashboardGroup[]): void {
       group.direction === "vertical" ? "vertical" : "horizontal",
       group.position,
       group.visible ? 1 : 0,
+      group.visible ? group.visibility ?? "everyone" : "hidden",
     );
     for (const item of group.services) {
       insertService.run(
@@ -446,7 +453,7 @@ function synchronizeDashboardGridRows(database: AppDatabase): void {
   const settingsRow = database.prepare("SELECT payload FROM dashboard_settings WHERE id = 1").get() as { payload: string } | undefined;
   const settings = parseJson<DashboardSettings>(settingsRow?.payload, structuredClone(DEFAULT_SETTINGS));
   const groups = database.prepare(
-    "SELECT id, name, icon, column_span, column_start, gap_before, direction, position, visible FROM dashboard_groups ORDER BY position, rowid",
+    "SELECT id, name, icon, column_span, column_start, gap_before, direction, position, visible, visibility FROM dashboard_groups ORDER BY position, rowid",
   ).all().map((row) => {
     const group = row as GroupRow;
     return {
@@ -459,6 +466,7 @@ function synchronizeDashboardGridRows(database: AppDatabase): void {
       direction: group.direction === "vertical" ? "vertical" : "horizontal",
       position: group.position,
       visible: Boolean(group.visible),
+      visibility: group.visibility,
       services: [],
     } satisfies DashboardGroup;
   });
@@ -530,18 +538,18 @@ function insertRevision(database: AppDatabase, label: string, dashboard: Dashboa
   `);
 }
 
-export function seedDatabase(database: AppDatabase): boolean {
+export function seedDatabase(database: AppDatabase, initialDashboard: DashboardData = createSeedDashboard()): boolean {
   const seeded = database.prepare("SELECT value FROM app_meta WHERE key = 'seeded'").get();
   if (seeded) return false;
 
   database.exec("BEGIN IMMEDIATE");
   try {
-    const dashboard = createSeedDashboard();
-    insertSettings(database, DEFAULT_SETTINGS);
-    insertGroups(database, DEFAULT_GROUPS);
-    insertWidgets(database, DEFAULT_WIDGETS);
+    const dashboard = initialDashboard;
+    insertSettings(database, dashboard.settings);
+    insertGroups(database, dashboard.groups);
+    insertWidgets(database, dashboard.widgets);
     insertDashboardGrid(database, dashboard.layout ?? []);
-    insertConnections(database, DEFAULT_CONNECTIONS);
+    insertConnections(database, dashboard.connections);
     database.prepare("INSERT INTO app_meta (key, value) VALUES ('seeded', '1')").run();
     setRevision(database, dashboard.revision);
     insertRevision(database, "Initial dashboard", dashboard);
@@ -563,6 +571,7 @@ type GroupRow = {
   direction: string;
   position: number;
   visible: number;
+  visibility: "everyone" | "signed-in" | "hidden";
 };
 type ServiceRow = {
   id: string;
@@ -589,7 +598,7 @@ export function readDashboard(database: AppDatabase): DashboardData {
     | undefined;
   const settings = validatedSettings(parseJson<unknown>(settingsRow?.payload, null));
   const groupRows = database
-    .prepare("SELECT id, name, icon, column_span, column_start, gap_before, direction, position, visible FROM dashboard_groups ORDER BY position, rowid")
+    .prepare("SELECT id, name, icon, column_span, column_start, gap_before, direction, position, visible, visibility FROM dashboard_groups ORDER BY position, rowid")
     .all() as GroupRow[];
   const serviceRows = database
     .prepare(`
@@ -638,6 +647,7 @@ export function readDashboard(database: AppDatabase): DashboardData {
     direction: row.direction === "vertical" ? "vertical" : "horizontal",
     position: row.position,
     visible: Boolean(row.visible),
+    visibility: row.visibility,
     services: servicesByGroup.get(row.id) ?? [],
   }));
 

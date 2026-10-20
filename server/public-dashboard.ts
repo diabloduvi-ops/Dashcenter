@@ -48,7 +48,7 @@ function publicWidgetConfig(widget: DashboardWidget, visibleServiceIds: Set<stri
 
 export function publishedDashboard(dashboard: DashboardData): DashboardData {
   const groups = dashboard.groups
-    .filter((group) => group.visible)
+    .filter((group) => group.visible && (group.visibility ?? "everyone") === "everyone")
     .map((group) => ({
       ...group,
       services: group.services

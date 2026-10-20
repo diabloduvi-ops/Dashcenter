@@ -98,7 +98,8 @@ export function WidgetsTab({ data, onCommit }: WidgetsTabProps) {
   const [calendarState, setCalendarState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [calendarMessage, setCalendarMessage] = useState("");
   const [readerFeedUrl, setReaderFeedUrl] = useState("");
-  const [readerFeedConfigured, setReaderFeedConfigured] = useState(false);
+  const [readerFeedName, setReaderFeedName] = useState("");
+  const [readerSources, setReaderSources] = useState<Array<{ id: string; name: string }>>([]);
   const [readerState, setReaderState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [readerMessage, setReaderMessage] = useState("");
   const selected = orderedWidgets.find((widget) => widget.id === selectedId) ?? orderedWidgets[0];
@@ -158,7 +159,8 @@ export function WidgetsTab({ data, onCommit }: WidgetsTabProps) {
   useEffect(() => {
     if (!selected || selected.type !== "feed-reader") {
       setReaderFeedUrl("");
-      setReaderFeedConfigured(false);
+      setReaderFeedName("");
+      setReaderSources([]);
       setReaderState("idle");
       setReaderMessage("");
       return;
@@ -166,10 +168,10 @@ export function WidgetsTab({ data, onCommit }: WidgetsTabProps) {
     let active = true;
     setReaderFeedUrl("");
     setReaderState("loading");
-    api<{ feedConfigured: boolean }>(`/api/widgets/${encodeURIComponent(selected.id)}/credentials`)
+    api<{ feedConfigured: boolean; sources: Array<{ id: string; name: string }> }>(`/api/widgets/${encodeURIComponent(selected.id)}/credentials`)
       .then((credentials) => {
         if (!active) return;
-        setReaderFeedConfigured(credentials.feedConfigured);
+        setReaderSources(credentials.sources);
         setReaderState("idle");
       })
       .catch((error) => {
@@ -294,21 +296,39 @@ export function WidgetsTab({ data, onCommit }: WidgetsTabProps) {
     if (selected.type === "feed-reader") {
       setReaderState("loading");
       try {
-        const credentials = await api<{ feedConfigured: boolean }>(
+        const credentials = await api<{ feedConfigured: boolean; sources: Array<{ id: string; name: string }> }>(
           `/api/widgets/${encodeURIComponent(selected.id)}/credentials`,
           {
             method: "PUT",
-            body: JSON.stringify(readerFeedUrl ? { feedUrl: readerFeedUrl } : {}),
+            body: JSON.stringify(readerFeedUrl ? { add: { name: readerFeedName, feedUrl: readerFeedUrl } } : {}),
           },
         );
         setReaderFeedUrl("");
-        setReaderFeedConfigured(credentials.feedConfigured);
+        setReaderFeedName("");
+        setReaderSources(credentials.sources);
         setReaderState("success");
         setReaderMessage("Feed settings saved.");
       } catch (error) {
         setReaderState("error");
         setReaderMessage(error instanceof Error ? error.message : "Could not save the feed.");
       }
+    }
+  }
+
+  async function removeReaderSource(id: string) {
+    if (!selected || selected.type !== "feed-reader") return;
+    setReaderState("loading");
+    try {
+      const credentials = await api<{ feedConfigured: boolean; sources: Array<{ id: string; name: string }> }>(
+        `/api/widgets/${encodeURIComponent(selected.id)}/credentials`,
+        { method: "PUT", body: JSON.stringify({ removeId: id }) },
+      );
+      setReaderSources(credentials.sources);
+      setReaderState("success");
+      setReaderMessage("Feed removed.");
+    } catch (error) {
+      setReaderState("error");
+      setReaderMessage(error instanceof Error ? error.message : "Could not remove the feed.");
     }
   }
 
@@ -389,7 +409,7 @@ export function WidgetsTab({ data, onCommit }: WidgetsTabProps) {
               maxAgeDays: Number(configDraft.maxAgeDays ?? 30),
               showImages: configDraft.showImages !== false,
             },
-            credentials: readerFeedUrl ? { feedUrl: readerFeedUrl } : {},
+            credentials: readerFeedUrl ? { add: { name: readerFeedName, feedUrl: readerFeedUrl } } : {},
           }),
         },
       );
@@ -675,14 +695,18 @@ export function WidgetsTab({ data, onCommit }: WidgetsTabProps) {
                     <option value="releases">Software releases</option>
                   </SelectField>
                   <Field
-                    label="RSS or Atom feed URL"
+                    label="Add RSS or Atom feed URL"
                     type="url"
                     value={readerFeedUrl}
                     onChange={(event) => setReaderFeedUrl(event.target.value)}
-                    placeholder={readerFeedConfigured ? "Stored securely on the server" : "https://…/feed.xml"}
-                    hint={readerFeedConfigured ? "Leave blank to keep the stored URL. Paste a new one to replace it." : "Public and private http(s) feeds are supported. GitHub release feeds usually end in /releases.atom."}
+                    placeholder="https://…/feed.xml"
+                    hint="Add up to five feeds. Private URLs stay on the server. Leave blank to keep existing sources."
                     autoComplete="off"
                   />
+                  <Field label="Source name (optional)" value={readerFeedName} onChange={(event) => setReaderFeedName(event.target.value)} placeholder="e.g. Project news" maxLength={120} />
+                  {readerSources.length ? <div className="admin-feed-sources" aria-label="Saved feed sources">
+                    {readerSources.map((source) => <div key={source.id}><span>{source.name}</span><Button variant="secondary" onClick={() => void removeReaderSource(source.id)} disabled={readerState === "loading"}>Remove</Button></div>)}
+                  </div> : null}
                   <div className="admin-form-grid">
                     <SelectField label="Maximum items" value={Number(configDraft.maxItems ?? 6)} onChange={(maxItems) => setConfigDraft({ ...configDraft, maxItems: Number(maxItems) })}>
                       <option value={4}>4 items</option>

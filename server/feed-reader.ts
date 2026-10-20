@@ -14,7 +14,29 @@ export interface FeedReaderConfig {
 }
 
 export interface FeedReaderCredentials {
-  feedUrl: string;
+  feedUrl?: string;
+  sources?: FeedReaderSource[];
+}
+
+export interface FeedReaderSource {
+  id: string;
+  name: string;
+  url: string;
+}
+
+export const MAX_FEED_SOURCES = 5;
+
+export function storedFeedSources(value: string): FeedReaderSource[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.filter((item): item is FeedReaderSource =>
+      typeof item === "object" && item !== null && typeof item.id === "string" &&
+      typeof item.name === "string" && typeof item.url === "string").slice(0, MAX_FEED_SOURCES);
+  } catch {
+    // Existing installations store one URL as plain text.
+  }
+  return [{ id: "legacy", name: "", url: value }];
 }
 
 export interface FeedReaderItem {
@@ -26,6 +48,7 @@ export interface FeedReaderItem {
   author: string;
   publishedAt?: string;
   version?: string;
+  sourceName?: string;
 }
 
 export interface FeedReaderResponse {
@@ -35,6 +58,7 @@ export interface FeedReaderResponse {
   homeUrl?: string;
   items: FeedReaderItem[];
   hasMore: boolean;
+  failedSources?: number;
   updatedAt: string;
 }
 
@@ -282,27 +306,59 @@ export async function fetchFeedReader(
   credentials: FeedReaderCredentials,
   force = false,
 ): Promise<FeedReaderResponse> {
-  const feedUrl = normalizeFeedReaderUrl(credentials.feedUrl);
+  const sources = credentials.sources?.length ? credentials.sources : credentials.feedUrl
+    ? [{ id: "legacy", name: "", url: credentials.feedUrl }] : [];
+  if (!sources.length) throw new Error("Feed URL is not configured.");
+  if (sources.length > MAX_FEED_SOURCES) throw new Error(`A widget can use at most ${MAX_FEED_SOURCES} feeds.`);
+  const normalizedSources = sources.map((source) => ({ ...source, url: normalizeFeedReaderUrl(source.url) }));
   const config = normalizeFeedReaderConfig(rawConfig);
-  const cacheKey = `${widgetId}\u0000${feedUrl}\u0000${JSON.stringify(config)}`;
+  const cacheKey = `${widgetId}\u0000${JSON.stringify(normalizedSources)}\u0000${JSON.stringify(config)}`;
   const cached = cache.get(cacheKey);
   if (!force && cached && cached.expiresAt > Date.now()) return cached.value;
-  let response: Response;
-  try {
-    response = await fetch(feedUrl, {
-      method: "GET",
-      redirect: "follow",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      headers: {
-        Accept: "application/atom+xml, application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1",
-        "User-Agent": "Dashcenter feed-reader",
-      },
-    });
-  } catch {
-    throw new Error("Could not reach the feed.");
+  const results = await Promise.allSettled(normalizedSources.map(async (source) => {
+    let response: Response;
+    try {
+      response = await fetch(source.url, {
+        method: "GET",
+        redirect: "follow",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: {
+          Accept: "application/atom+xml, application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1",
+          "User-Agent": "Dashcenter feed-reader",
+        },
+      });
+    } catch {
+      throw new Error("Could not reach the feed.");
+    }
+    if (!response.ok) throw new Error(`Feed returned HTTP ${response.status}.`);
+    const parsed = parseFeedReader(await boundedText(response), { ...config, maxItems: 20 });
+    return { source, parsed };
+  }));
+  const fulfilled = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  if (!fulfilled.length) {
+    const first = results[0];
+    throw first.status === "rejected" ? first.reason : new Error("Feed unavailable.");
   }
-  if (!response.ok) throw new Error(`Feed returned HTTP ${response.status}.`);
-  const value = parseFeedReader(await boundedText(response), { ...config });
+  const merged = fulfilled.flatMap(({ source, parsed }) => parsed.items.map((item) => ({
+    ...item,
+    id: `${source.id}:${item.id}`,
+    sourceName: source.name.trim() || parsed.feedTitle || new URL(source.url).hostname,
+  }))).sort((left, right) => {
+    const leftTime = left.publishedAt ? Date.parse(left.publishedAt) : Number.NEGATIVE_INFINITY;
+    const rightTime = right.publishedAt ? Date.parse(right.publishedAt) : Number.NEGATIVE_INFINITY;
+    return rightTime - leftTime || left.id.localeCompare(right.id);
+  });
+  const unique = [...new Map(merged.map((item) => [item.url || item.id, item])).values()];
+  const value: FeedReaderResponse = {
+    label: config.label,
+    mode: config.mode,
+    feedTitle: normalizedSources.length === 1 ? fulfilled[0].parsed.feedTitle : `${normalizedSources.length} feeds`,
+    ...(normalizedSources.length === 1 && fulfilled[0].parsed.homeUrl ? { homeUrl: fulfilled[0].parsed.homeUrl } : {}),
+    items: unique.slice(0, config.maxItems),
+    hasMore: unique.length > config.maxItems || fulfilled.some(({ parsed }) => parsed.hasMore),
+    ...(results.length > fulfilled.length ? { failedSources: results.length - fulfilled.length } : {}),
+    updatedAt: new Date().toISOString(),
+  };
   cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value });
   return value;
 }

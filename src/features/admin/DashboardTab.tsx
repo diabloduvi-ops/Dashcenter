@@ -169,6 +169,10 @@ export function DashboardTab({
               onChange={(event) => changeDraft({ ...draft, settings: { ...draft.settings, title: event.target.value } })}
             />
           </label>
+          <label className="admin-dashboard-editor__privacy">
+            <input type="checkbox" checked={draft.settings.requireSignIn} onChange={(event) => changeDraft({ ...draft, settings: { ...draft.settings, requireSignIn: event.target.checked } })} />
+            Require sign-in to view
+          </label>
           <span className={dirty ? "is-dirty" : ""}>
             <CheckCircle2 size={14} />
             {!nameValid ? "Enter a dashboard name" : saving ? "Saving dashboard…" : dirty ? "Unsaved changes" : "Dashboard saved on server"}
