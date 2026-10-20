@@ -700,10 +700,12 @@ type FeedReaderPayload = {
     url?: string;
     imageUrl?: string;
     author: string;
+    sourceName?: string;
     publishedAt?: string;
     version?: string;
   }>;
   hasMore: boolean;
+  failedSources?: number;
   updatedAt: string;
 };
 
@@ -802,7 +804,7 @@ function FeedReaderWidget({ widget, locale }: { widget: DashboardWidget; locale:
                 <span className="feed-reader-item__copy">
                   <span className="feed-reader-item__meta">
                     {displayMode === "releases" && item.version ? <strong>{item.version}</strong> : null}
-                    <small>{[item.author, feedDateLabel(item.publishedAt, locale)].filter(Boolean).join(" · ")}</small>
+                    <small>{[item.sourceName, item.author, feedDateLabel(item.publishedAt, locale)].filter(Boolean).join(" · ")}</small>
                   </span>
                   <b>{item.title}</b>
                   {item.summary ? <p>{item.summary}</p> : null}
@@ -817,7 +819,7 @@ function FeedReaderWidget({ widget, locale }: { widget: DashboardWidget; locale:
       ) : null}
       {payload?.hasMore || payload?.homeUrl ? (
         <footer>
-          <span>{payload.hasMore ? "More items are available" : "Source feed"}</span>
+          <span>{payload.failedSources ? `${payload.failedSources} source${payload.failedSources === 1 ? "" : "s"} unavailable` : payload.hasMore ? "More items are available" : "Source feed"}</span>
           {payload.homeUrl ? <a href={payload.homeUrl} target="_blank" rel="noreferrer">Open source <ExternalLink size={11} /></a> : null}
         </footer>
       ) : null}

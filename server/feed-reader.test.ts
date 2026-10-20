@@ -166,10 +166,10 @@ test("feed reader keeps its source URL server-side", async () => {
       payload: { feedUrl },
     });
     assert.equal(saved.statusCode, 200);
-    assert.deepEqual(saved.json(), { feedConfigured: true });
+    assert.deepEqual(saved.json(), { feedConfigured: true, sources: [{ id: "legacy", name: "feeds.example" }] });
 
     const credentials = await app.inject({ method: "GET", url: `/api/widgets/${widget.id}/credentials` });
-    assert.deepEqual(credentials.json(), { feedConfigured: true });
+    assert.deepEqual(credentials.json(), { feedConfigured: true, sources: [{ id: "legacy", name: "feeds.example" }] });
     const dashboard = await app.inject({ method: "GET", url: "/api/dashboard" });
     assert.doesNotMatch(dashboard.body, /server-only-secret|private\/releases\.atom/);
 
@@ -178,6 +178,49 @@ test("feed reader keeps its source URL server-side", async () => {
     assert.equal(feed.json<{ label: string }>().label, "Project releases");
     assert.doesNotMatch(feed.body, /server-only-secret|private\/releases\.atom/);
     assert.deepEqual(requestedUrls, [feedUrl]);
+  } finally {
+    await app.close();
+    database.close();
+    globalThis.fetch = originalFetch;
+    rmSync(dataDirectory, { recursive: true, force: true });
+    if (previousBypass === undefined) delete process.env.DEV_BYPASS_AUTH;
+    else process.env.DEV_BYPASS_AUTH = previousBypass;
+  }
+});
+
+test("multiple feed sources stay server-side and merge dated items with source names", async () => {
+  const previousBypass = process.env.DEV_BYPASS_AUTH;
+  const originalFetch = globalThis.fetch;
+  const dataDirectory = mkdtempSync(path.join(tmpdir(), "dashcenter-multifeed-"));
+  const database = createDatabase(":memory:");
+  process.env.DEV_BYPASS_AUTH = "1";
+  const firstUrl = "https://feeds.example/first.xml?token=first-secret";
+  const secondUrl = "https://feeds.example/second.xml?token=second-secret";
+  const rss = (title: string, date: string) => `<rss><channel><title>${title}</title><item><guid>${title}</guid><title>${title}</title><pubDate>${date}</pubDate></item></channel></rss>`;
+  globalThis.fetch = async (input) => new Response(
+    String(input) === firstUrl ? rss("Older", "Sat, 12 Sep 2026 10:00:00 GMT") : rss("Newer", "Sun, 13 Sep 2026 10:00:00 GMT"),
+    { status: 200 },
+  );
+  const app = await buildApp({ database, dataDirectory, serveFrontend: false, logger: false, healthRefreshIntervalMs: false });
+  try {
+    const created = await app.inject({ method: "POST", url: "/api/widgets", payload: { type: "feed-reader", config: { maxAgeDays: 0 } } });
+    const id = created.json<DashboardData>().widgets.find((widget) => widget.type === "feed-reader")?.id;
+    assert.ok(id);
+    const endpoint = `/api/widgets/${id}/credentials`;
+    assert.equal((await app.inject({ method: "PUT", url: endpoint, payload: { add: { name: "First source", feedUrl: firstUrl } } })).statusCode, 200);
+    const saved = await app.inject({ method: "PUT", url: endpoint, payload: { add: { name: "Second source", feedUrl: secondUrl } } });
+    assert.equal(saved.statusCode, 200);
+    const sources = saved.json<{ sources: Array<{ id: string; name: string }> }>().sources;
+    assert.deepEqual(sources.map((source) => source.name), ["First source", "Second source"]);
+    assert.doesNotMatch(saved.body, /first-secret|second-secret/);
+    assert.doesNotMatch((await app.inject({ method: "GET", url: "/api/dashboard" })).body, /first-secret|second-secret/);
+    const feed = await app.inject({ method: "GET", url: `/api/widgets/feed-reader/${id}` });
+    assert.equal(feed.statusCode, 200);
+    const items = feed.json<{ items: Array<{ title: string; sourceName: string }> }>().items;
+    assert.deepEqual(items.map((item) => [item.title, item.sourceName]), [["Newer", "Second source"], ["Older", "First source"]]);
+    assert.doesNotMatch(feed.body, /first-secret|second-secret/);
+    const removed = await app.inject({ method: "PUT", url: endpoint, payload: { removeId: sources[0].id } });
+    assert.equal(removed.json<{ sources: unknown[] }>().sources.length, 1);
   } finally {
     await app.close();
     database.close();

@@ -17,6 +17,7 @@ export function AuthGate({ auth, onRefresh }: AuthGateProps) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [starter, setStarter] = useState<"empty" | "demo">("empty");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -31,7 +32,7 @@ export function AuthGate({ auth, onRefresh }: AuthGateProps) {
     try {
       await apiRequest(setup ? "/api/auth/setup" : "/api/auth/login", {
         method: "POST",
-        body: JSON.stringify(setup ? { username, displayName, password } : { username, password }),
+        body: JSON.stringify(setup ? { username, displayName, password, starter } : { username, password }),
       });
       await onRefresh();
     } catch (requestError) {
@@ -56,7 +57,7 @@ export function AuthGate({ auth, onRefresh }: AuthGateProps) {
         <p>
           {setup
             ? "Create the local administrator used to manage services, connections, and appearance."
-            : "Sign in to open the dashboard editor."}
+            : auth.requireSignIn ? "Sign in to view your dashboard." : "Sign in to open the dashboard editor."}
         </p>
         <form className="admin-auth__form" onSubmit={submit}>
           {setup ? (
@@ -67,6 +68,13 @@ export function AuthGate({ auth, onRefresh }: AuthGateProps) {
               placeholder="Your name"
               autoComplete="name"
             />
+          ) : null}
+          {setup ? (
+            <fieldset className="admin-starter-choice">
+              <legend>Starting dashboard</legend>
+              <label><input type="radio" name="starter" value="empty" checked={starter === "empty"} onChange={() => setStarter("empty")} /> Empty board <small>Add your own services and widgets.</small></label>
+              <label><input type="radio" name="starter" value="demo" checked={starter === "demo"} onChange={() => setStarter("demo")} /> Demo board <small>Try generic example links.</small></label>
+            </fieldset>
           ) : null}
           <Field
             label="Username"

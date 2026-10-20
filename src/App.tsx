@@ -4,7 +4,8 @@ import type { AuthState, DashboardData } from "../shared/types";
 import { DashboardView } from "./components/DashboardView";
 import { DashcenterMark } from "./components/DashcenterMark";
 import { AdminEditor } from "./features/admin/AdminEditor";
-import { getAuthState, getDashboard } from "./lib/api";
+import { ApiError, getAuthState, getDashboard } from "./lib/api";
+import { AuthGate } from "./features/admin/AuthGate";
 
 export function App() {
   const location = useLocation();
@@ -30,14 +31,25 @@ export function App() {
       setData(await loadDashboard());
       setError("");
     } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 401) {
+        setData(null);
+        setAuth(await getAuthState());
+        return;
+      }
       setError(requestError instanceof Error ? requestError.message : "Dashcenter could not reach its server.");
     }
   }, [loadDashboard]);
 
   const refresh = useCallback(async () => {
     try {
-      const [, nextAuth] = await Promise.all([refreshDashboard(), getAuthState()]);
+      const nextAuth = await getAuthState();
       setAuth(nextAuth);
+      if (nextAuth.requireSignIn && !nextAuth.authenticated && !nextAuth.devBypass) {
+        setData(null);
+        setError("");
+        return;
+      }
+      await refreshDashboard();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Dashcenter could not reach its server.");
     }
@@ -47,7 +59,12 @@ export function App() {
     void refresh();
   }, [refresh]);
 
+  if (auth.needsSetup) return <AuthGate auth={auth} onRefresh={refresh} />;
+
   if (!data) {
+    if (auth.requireSignIn && !auth.authenticated && !auth.devBypass) {
+      return <AuthGate auth={auth} onRefresh={refresh} />;
+    }
     return (
       <main className="boot-screen">
         <div className="boot-brand"><DashcenterMark className="boot-brand__mark" size={32} /><strong>Dashcenter</strong></div>

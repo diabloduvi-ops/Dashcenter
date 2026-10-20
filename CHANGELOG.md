@@ -4,6 +4,18 @@ All notable Dashcenter changes are recorded here. The project follows [Semantic 
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-10-20
+
+### Added
+
+- Added a first-run choice between an empty dashboard and a generic demo dashboard. Fresh installations start without personal-looking links or a Docker connection; existing dashboards are preserved.
+- Added **Require sign-in to view** in Dashboard settings and **Everyone / Signed-in only / Hidden** visibility for service groups. Anonymous dashboard, plugin and upload requests respect these settings.
+- Added up to five RSS/Atom sources per feed reader widget, merged by publication date and labeled with their source name. Existing single-feed widgets continue to work.
+
+### Changed
+
+- Kept saved feed URLs on the server and excluded them from credential responses. The existing `/data` volume and backup format remain compatible.
+
 ## [1.0.5] - 2026-10-19
 
 ### Security

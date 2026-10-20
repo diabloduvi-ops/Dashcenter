@@ -3,6 +3,7 @@ import type { DashboardAppearance } from "./appearance.js";
 export type ServiceStatus = "healthy" | "unhealthy" | "checking" | "unknown";
 export type ServiceStatusSource = "http" | "docker" | "uptime-kuma";
 export type ServiceGroupDirection = "horizontal" | "vertical";
+export type GroupVisibility = "everyone" | "signed-in" | "hidden";
 
 export type ServicePluginType = "beszel" | "portainer" | "proxmox" | "uptime-kuma" | "jellyfin" | "plex" | "mikrotik" | "radarr" | "sonarr" | "lidarr" | "prowlarr" | "bazarr" | "qbittorrent" | "nginx-proxy-manager" | "steam-wishlist";
 export type ServicePluginPresentation = "summary" | "expanded";
@@ -45,6 +46,8 @@ export interface DashboardGroup {
   direction?: ServiceGroupDirection;
   position: number;
   visible: boolean;
+  /** Missing on old backups; derived from visible when validated. */
+  visibility?: GroupVisibility;
   services: DashboardService[];
 }
 
@@ -60,6 +63,7 @@ export interface DashboardSettings {
   columns: number;
   density: "compact" | "comfortable";
   openInNewTab: boolean;
+  requireSignIn: boolean;
   showSearch: boolean;
   showClock: boolean;
   showWeather: boolean;
@@ -108,6 +112,7 @@ export interface DashboardData {
 export interface AuthState {
   needsSetup: boolean;
   authenticated: boolean;
+  requireSignIn?: boolean;
   username?: string;
   displayName?: string;
   devBypass?: boolean;
