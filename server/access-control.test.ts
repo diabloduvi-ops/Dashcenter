@@ -32,7 +32,7 @@ test("first-run choice creates an empty or neutral demo board without changing e
           assert.deepEqual(dashboard.layout, []);
         } else {
           assert.equal(dashboard.groups.length, 1);
-          assert.ok(dashboard.groups[0].services.every((service) => new URL(service.href).hostname.endsWith("example.com") || new URL(service.href).hostname.endsWith("example.org")));
+          assert.ok(dashboard.groups[0].services.every((service) => ["example.com", "example.org"].includes(new URL(service.href).hostname)));
           assert.doesNotMatch(JSON.stringify(dashboard), /Facebook|Bitdefender|Websupport|docker-local/);
         }
       } finally {
