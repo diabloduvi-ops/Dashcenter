@@ -92,6 +92,6 @@ Packages: **87**
 | `toad-cache` | `3.7.4` | `MIT` | https://github.com/kibertoad/toad-cache |
 | `toidentifier` | `1.0.1` | `MIT` | https://github.com/component/toidentifier#readme |
 | `tslib` | `2.8.1` | `0BSD` | https://www.typescriptlang.org/ |
-| `zod` | `4.4.3` | `MIT` | https://zod.dev |
+| `zod` | `4.6.6` | `MIT` | https://zod.dev |
 
 Generated with `pnpm licenses list --prod --json` and `scripts/generate-license-inventory.mjs`.
