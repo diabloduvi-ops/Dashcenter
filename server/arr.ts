@@ -1,3 +1,5 @@
+import { readBoundedText } from "./bounded-response.js";
+import { cacheValue } from "./bounded-cache.js";
 import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
@@ -48,10 +50,7 @@ function baseUrl(value: string, provider: ArrProvider): string {
 
 async function responseJson(response: Response, provider: ArrProvider): Promise<unknown> {
   const name = providerName(provider);
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error(`${name} returned too much data.`);
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error(`${name} returned too much data.`);
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, `${name} returned too much data.`);
   try {
     return JSON.parse(text) as unknown;
   } catch {
@@ -164,6 +163,6 @@ export async function fetchArrPlugin(
   const cached = pluginCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const value = await loadArr(provider, config, credentials);
-  pluginCache.set(key, { value, expiresAt: Date.now() + PLUGIN_CACHE_TTL_MS });
+  cacheValue(pluginCache, key, { value, expiresAt: Date.now() + PLUGIN_CACHE_TTL_MS }, 128);
   return value;
 }

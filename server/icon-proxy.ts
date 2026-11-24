@@ -1,4 +1,6 @@
 import { MDI_ICONS_REVISION, SIMPLE_ICONS_REVISION } from "../shared/icons.js";
+import { cacheValue } from "./bounded-cache.js";
+import { readBoundedText } from "./bounded-response.js";
 
 export type SvgIconSet = "mdi" | "si";
 
@@ -54,7 +56,7 @@ export async function loadPinnedSvgIcon(
           signal: AbortSignal.timeout(7_000),
         });
         if (!response.ok) throw new Error(`Icon request failed with ${response.status}.`);
-        const svg = await response.text();
+        const svg = await readBoundedText(response, MAX_SVG_BYTES, "Icon response is too large.");
         if (!validSvg(svg)) throw new Error("Icon response is not a safe SVG.");
         return svg;
       } catch (error) {
@@ -63,11 +65,11 @@ export async function loadPinnedSvgIcon(
     }
     throw lastError ?? new Error("Icon could not be loaded.");
   })().catch((error) => {
-    svgCache.delete(cacheKey);
+    if (svgCache.get(cacheKey) === load) svgCache.delete(cacheKey);
     throw error;
   });
 
-  svgCache.set(cacheKey, load);
+  cacheValue(svgCache, cacheKey, load, 256);
   return load;
 }
 

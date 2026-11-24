@@ -1,3 +1,4 @@
+import { readBoundedText } from "./bounded-response.js";
 import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
@@ -200,10 +201,7 @@ async function load(config: UptimeKumaConfig, credentials: UptimeKumaCredentials
     throw new Error("Uptime Kuma authentication failed. Check that the Prometheus API key is active.");
   }
   if (!response.ok) throw new Error(`Uptime Kuma request failed with status ${response.status}.`);
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("Uptime Kuma returned too much metrics data.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Uptime Kuma returned too much metrics data.");
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "Uptime Kuma returned too much metrics data.");
   return summarize(parseMetrics(text), config);
 }
 

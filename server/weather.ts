@@ -1,3 +1,6 @@
+import { cacheValue } from "./bounded-cache.js";
+import { readBoundedText } from "./bounded-response.js";
+
 interface WeatherResult {
   label: string;
   latitude: number;
@@ -61,7 +64,7 @@ export async function fetchWeather(label: string, latitude: number, longitude: n
       headers: { Accept: "application/json", "User-Agent": "Dashcenter/0.1" },
     });
     if (!response.ok) throw new Error(`Weather provider returned HTTP ${response.status}.`);
-    const body = (await response.json()) as {
+    const body = JSON.parse(await readBoundedText(response, 256 * 1024, "Weather response is too large.")) as {
       latitude?: unknown;
       longitude?: unknown;
       current?: Record<string, unknown>;
@@ -85,7 +88,7 @@ export async function fetchWeather(label: string, latitude: number, longitude: n
       windSpeedUnit: typeof units.wind_speed_10m === "string" ? units.wind_speed_10m : "km/h",
       fetchedAt: new Date().toISOString(),
     };
-    cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, result });
+    cacheValue(cache, cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, result }, 128);
     return result;
   } catch (error) {
     if (cached && cached.expiresAt + STALE_TTL_MS > Date.now()) {

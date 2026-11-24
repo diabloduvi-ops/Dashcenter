@@ -5,8 +5,10 @@ import { fetchBazarrPlugin, testBazarrConnection } from "./bazarr.js";
 test("Bazarr returns missing subtitle counts and caches equal requests", async () => {
   const original = globalThis.fetch;
   const calls: string[] = [];
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = async (input, options) => {
     const url = String(input);
+    assert.equal(new Headers(options?.headers).get("X-Api-Key"), "bazarr-secret");
+    assert.equal(new URL(url).searchParams.has("apikey"), false);
     calls.push(url);
     return new Response(JSON.stringify({ total: url.includes("/episodes/") ? 14 : 5 }), { status: 200 });
   };

@@ -1,8 +1,13 @@
+import { cacheValue } from "./bounded-cache.js";
+import { readBoundedText } from "./bounded-response.js";
+
 const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const CACHE_TTL_MS = 60_000;
 const MAX_SOURCE_EVENTS = 5_000;
 const MAX_RECURRENCE_STEPS = 50_000;
+const MAX_FEED_RECURRENCE_STEPS = 12_000;
+const DAY_MS = 24 * 60 * 60 * 1_000;
 
 export interface CalendarAgendaConfig {
   label: string;
@@ -61,6 +66,7 @@ interface SourceEvent {
 }
 
 const cache = new Map<string, { expiresAt: number; value: CalendarAgendaResponse }>();
+const timeZoneFormatters = new Map<string, Intl.DateTimeFormat>();
 
 export function normalizeCalendarAgendaConfig(value: Record<string, unknown>): CalendarAgendaConfig {
   const rawLabel = typeof value.label === "string" ? value.label.trim() : "";
@@ -115,16 +121,21 @@ function unescapeText(value: string): string {
 }
 
 function partsInTimeZone(date: Date, timeZone: string): Record<string, number> {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
+  let formatter = timeZoneFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+    cacheValue(timeZoneFormatters, timeZone, formatter, 64);
+  }
+  const parts = formatter.formatToParts(date);
   return Object.fromEntries(parts.flatMap((part) => {
     const number = Number(part.value);
     return Number.isFinite(number) ? [[part.type, number]] : [];
@@ -342,7 +353,7 @@ function recurrenceCandidate(event: SourceEvent, frequency: string, amount: numb
 
 const WEEKDAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 
-function recurrenceDates(event: SourceEvent, rangeEnd: Date): Date[] {
+function recurrenceDates(event: SourceEvent, rangeStart: Date, rangeEnd: Date, takeStep: () => void): Date[] {
   if (!event.rrule) return [event.start.date];
   const rule = Object.fromEntries(event.rrule.split(";").flatMap((part) => {
     const separator = part.indexOf("=");
@@ -355,14 +366,21 @@ function recurrenceDates(event: SourceEvent, rangeEnd: Date): Date[] {
   const until = rule.UNTIL ? parseCalendarDate(rule.UNTIL, {})?.date : undefined;
   const byDays = new Set((rule.BYDAY ?? "").split(",").map((day) => day.slice(-2).toUpperCase()).filter((day) => WEEKDAYS.includes(day)));
   const dates: Date[] = [];
+  const duration = Math.max(1, event.end.date.getTime() - event.start.date.getTime());
+  const earliestStart = rangeStart.getTime() - duration;
+  const skipDays = count ? 0 : Math.max(0, Math.floor((earliestStart - event.start.date.getTime()) / DAY_MS) - 2);
 
   if (frequency === "WEEKLY" && byDays.size > 0) {
     const startTemplate = wallClockTemplate(event.start);
     const startDay = Date.UTC(startTemplate.getUTCFullYear(), startTemplate.getUTCMonth(), startTemplate.getUTCDate());
     const endTime = Math.min(rangeEnd.getTime(), until?.getTime() ?? Number.POSITIVE_INFINITY);
-    for (let step = 0, emitted = 0; step < MAX_RECURRENCE_STEPS; step += 1) {
-      const dayTime = startDay + step * 24 * 60 * 60 * 1_000;
+    for (let step = skipDays, emitted = 0; step < MAX_RECURRENCE_STEPS; step += 1) {
+      takeStep();
+      const dayTime = startDay + step * DAY_MS;
+      if (dayTime > endTime + 2 * DAY_MS) break;
       const candidateTemplate = new Date(dayTime);
+      const weekIndex = Math.floor(step / 7);
+      if (weekIndex % interval !== 0 || !byDays.has(WEEKDAYS[candidateTemplate.getUTCDay()])) continue;
       candidateTemplate.setUTCHours(
         startTemplate.getUTCHours(),
         startTemplate.getUTCMinutes(),
@@ -378,24 +396,25 @@ function recurrenceDates(event: SourceEvent, rangeEnd: Date): Date[] {
         second: candidateTemplate.getUTCSeconds(),
       }, event.start);
       if (candidate.getTime() > endTime) break;
-      const weekIndex = Math.floor(step / 7);
-      if (weekIndex % interval !== 0 || !byDays.has(WEEKDAYS[candidateTemplate.getUTCDay()])) continue;
       if (candidate.getTime() < event.start.date.getTime()) continue;
       emitted += 1;
-      if (!count || emitted <= count) dates.push(candidate);
+      if (candidate.getTime() > earliestStart) dates.push(candidate);
       if (count && emitted >= count) break;
     }
     return dates;
   }
 
-  for (let step = 0, emitted = 0; step < MAX_RECURRENCE_STEPS; step += 1) {
+  const stepDays = frequency === "DAILY" ? interval : frequency === "WEEKLY" ? interval * 7 : 0;
+  const firstStep = stepDays ? Math.floor(skipDays / stepDays) : 0;
+  for (let step = firstStep, emitted = 0; step < MAX_RECURRENCE_STEPS; step += 1) {
+    takeStep();
     const candidate = recurrenceCandidate(event, frequency, step * interval);
     if (!candidate) continue;
     if (until && candidate.getTime() > until.getTime()) break;
     if (candidate.getTime() >= rangeEnd.getTime()) break;
     if (byDays.size > 0 && !byDays.has(WEEKDAYS[candidate.getUTCDay()])) continue;
     emitted += 1;
-    if (!count || emitted <= count) dates.push(candidate);
+    if (candidate.getTime() > earliestStart) dates.push(candidate);
     if (count && emitted >= count) break;
   }
   return dates;
@@ -449,6 +468,10 @@ export function parseCalendarAgenda(
 
   const rangeStart = new Date(now);
   const rangeEnd = new Date(now.getTime() + config.daysAhead * 24 * 60 * 60 * 1_000);
+  let recurrenceSteps = 0;
+  const takeStep = () => {
+    if (++recurrenceSteps > MAX_FEED_RECURRENCE_STEPS) throw new Error("Calendar feed recurrence exceeds the processing limit.");
+  };
   const overridden = new Set(sourceEvents.flatMap((event) => event.recurrenceId
     ? [`${event.uid}:${event.recurrenceId.date.toISOString()}`]
     : []));
@@ -457,13 +480,13 @@ export function parseCalendarAgenda(
     if (event.cancelled) return [];
     const dates = event.recurrenceId
       ? [event.start.date]
-      : [...recurrenceDates(event, rangeEnd), ...event.rdates.map((date) => date.date)];
+      : [...recurrenceDates(event, rangeStart, rangeEnd, takeStep), ...event.rdates.map((date) => date.date)];
     return dates.flatMap((date) => {
+      const duration = Math.max(1, event.end.date.getTime() - event.start.date.getTime());
+      if (date.getTime() + duration <= rangeStart.getTime() || date.getTime() >= rangeEnd.getTime()) return [];
       const recurrenceKey = `${event.uid}:${date.toISOString()}`;
       if ((!event.recurrenceId && overridden.has(recurrenceKey)) || excluded.has(recurrenceKey)) return [];
-      const occurrence = eventOccurrence(event, date);
-      if (new Date(occurrence.end).getTime() <= rangeStart.getTime() || date.getTime() >= rangeEnd.getTime()) return [];
-      return [occurrence];
+      return [eventOccurrence(event, date)];
     });
   });
   const unique = [...new Map(allEvents.map((event) => [event.id, event])).values()]
@@ -478,32 +501,6 @@ export function parseCalendarAgenda(
     hasMore: unique.length > config.maxEvents,
     updatedAt: new Date().toISOString(),
   };
-}
-
-async function boundedText(response: Response): Promise<string> {
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("Calendar feed returned too much data.");
-  if (!response.body) {
-    const text = await response.text();
-    if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Calendar feed returned too much data.");
-    return text;
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  const chunks: string[] = [];
-  let received = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    received += value.byteLength;
-    if (received > MAX_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new Error("Calendar feed returned too much data.");
-    }
-    chunks.push(decoder.decode(value, { stream: true }));
-  }
-  chunks.push(decoder.decode());
-  return chunks.join("");
 }
 
 export async function fetchCalendarAgenda(
@@ -521,7 +518,7 @@ export async function fetchCalendarAgenda(
   try {
     response = await fetch(feedUrl, {
       method: "GET",
-      redirect: "follow",
+      redirect: "error",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
         Accept: "text/calendar, text/plain;q=0.9, */*;q=0.1",
@@ -532,8 +529,8 @@ export async function fetchCalendarAgenda(
     throw new Error("Could not reach the calendar feed.");
   }
   if (!response.ok) throw new Error(`Calendar feed returned HTTP ${response.status}.`);
-  const value = parseCalendarAgenda(await boundedText(response), { ...config });
-  cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+  const value = parseCalendarAgenda(await readBoundedText(response, MAX_RESPONSE_BYTES, "Calendar feed returned too much data."), { ...config });
+  cacheValue(cache, cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value }, 128);
   return value;
 }
 

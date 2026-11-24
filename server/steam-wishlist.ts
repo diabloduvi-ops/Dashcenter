@@ -1,3 +1,4 @@
+import { readBoundedText } from "./bounded-response.js";
 import { createHash } from "node:crypto";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -87,10 +88,7 @@ function stringValue(value: unknown): string {
 }
 
 async function responseJson(response: Response, label: string): Promise<unknown> {
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("Steam returned too much data.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Steam returned too much data.");
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "Steam returned too much data.");
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
       throw new Error("Steam could not read this wishlist. Make sure the profile and game details are public.");

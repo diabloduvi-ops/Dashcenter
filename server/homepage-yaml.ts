@@ -5,6 +5,8 @@ import type { DashboardGroup, DashboardService, ImportPreview } from "../shared/
 const KNOWN_SERVICE_FIELDS = new Set(["icon", "href", "description", "server", "container"]);
 const BLOCKED_OBJECT_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const MAX_YAML_BYTES = 10 * 1024 * 1024;
+const MAX_EXPANDED_YAML_NODES = 50_000;
+const MAX_EXPANDED_YAML_TEXT = 20 * 1024 * 1024;
 const MAX_ICON_REFERENCE_LENGTH = 512;
 
 export class HomepageYamlError extends Error {
@@ -91,18 +93,49 @@ function uniqueId(base: string, usedIds: Set<string>): string {
   return candidate;
 }
 
+function checkYamlExpansion(document: unknown): void {
+  const ancestors = new WeakSet<object>();
+  let nodes = 0;
+  let textBytes = 0;
+  const visit = (value: unknown, depth: number): void => {
+    if (++nodes > MAX_EXPANDED_YAML_NODES || depth > 40) {
+      throw new HomepageYamlError("Homepage YAML contains too many nested or referenced values.");
+    }
+    if (typeof value === "string") {
+      textBytes += Buffer.byteLength(value, "utf8");
+      if (textBytes > MAX_EXPANDED_YAML_TEXT) throw new HomepageYamlError("Expanded Homepage YAML is too large.");
+    }
+    if (!value || typeof value !== "object") return;
+    if (ancestors.has(value)) throw new HomepageYamlError("Homepage YAML contains a circular reference.");
+    ancestors.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, depth + 1);
+    } else {
+      for (const [key, item] of Object.entries(value)) {
+        visit(key, depth + 1);
+        visit(item, depth + 1);
+      }
+    }
+    ancestors.delete(value);
+  };
+  visit(document, 0);
+}
+
 function parseYamlDocument(source: string, label: string): unknown {
   if (!source.trim()) throw new HomepageYamlError(`The ${label} document is empty.`);
   if (Buffer.byteLength(source, "utf8") > MAX_YAML_BYTES) {
     throw new HomepageYamlError(`The ${label} document is larger than 10 MB.`);
   }
 
+  let document: unknown;
   try {
-    return load(source, { schema: JSON_SCHEMA, json: false });
+    document = load(source, { schema: JSON_SCHEMA, json: false });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown YAML syntax error";
     throw new HomepageYamlError(`Could not parse Homepage ${label}: ${detail}`);
   }
+  checkYamlExpansion(document);
+  return document;
 }
 
 function parseHomepageGroupIcons(source: string, warnings: string[]): Map<string, string> {

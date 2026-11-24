@@ -1,3 +1,4 @@
+import { readBoundedText } from "./bounded-response.js";
 import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
@@ -30,10 +31,7 @@ function apiUrl(value: string): string {
 }
 
 async function responseJson(response: Response, label: string): Promise<unknown> {
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("Nginx Proxy Manager returned too much data.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Nginx Proxy Manager returned too much data.");
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "Nginx Proxy Manager returned too much data.");
   try {
     return JSON.parse(text) as unknown;
   } catch {

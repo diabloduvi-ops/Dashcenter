@@ -1,4 +1,6 @@
 import type { DashboardData, DashboardWidget } from "../shared/types.js";
+import { findDashboardWidget } from "../shared/widgets.js";
+import { DEFAULT_SETTINGS } from "./seed.js";
 
 // Only fields needed to render the published board belong in an anonymous response.
 // Widget and plugin configuration can contain private URLs or future credentials.
@@ -46,6 +48,18 @@ function publicWidgetConfig(widget: DashboardWidget, visibleServiceIds: Set<stri
   return config;
 }
 
+export function publishedWeatherLocation(dashboard: DashboardData) {
+  const weather = findDashboardWidget(dashboard.widgets.filter((widget) => widget.enabled), "weather");
+  if (!weather) return undefined;
+  const fallback = findDashboardWidget(dashboard.widgets, "weather") === weather ? dashboard.settings : DEFAULT_SETTINGS;
+  const { label, latitude, longitude } = weather.config;
+  return {
+    weatherLabel: typeof label === "string" ? label : fallback.weatherLabel,
+    weatherLatitude: typeof latitude === "number" ? latitude : fallback.weatherLatitude,
+    weatherLongitude: typeof longitude === "number" ? longitude : fallback.weatherLongitude,
+  };
+}
+
 export function publishedDashboard(dashboard: DashboardData): DashboardData {
   const groups = dashboard.groups
     .filter((group) => group.visible && (group.visibility ?? "everyone") === "everyone")
@@ -66,6 +80,7 @@ export function publishedDashboard(dashboard: DashboardData): DashboardData {
   const widgets = dashboard.widgets
     .filter((widget) => widget.enabled)
     .map((widget) => ({ ...widget, config: publicWidgetConfig(widget, visibleServiceIds) }));
+  const weather = publishedWeatherLocation(dashboard);
   const visibleIds = new Set([
     ...groups.map((group) => `group:${group.id}`),
     ...widgets.map((widget) => `widget:${widget.id}`),
@@ -73,6 +88,14 @@ export function publishedDashboard(dashboard: DashboardData): DashboardData {
 
   return {
     ...dashboard,
+    settings: {
+      ...dashboard.settings,
+      ...(weather ?? {
+        weatherLabel: DEFAULT_SETTINGS.weatherLabel,
+        weatherLatitude: DEFAULT_SETTINGS.weatherLatitude,
+        weatherLongitude: DEFAULT_SETTINGS.weatherLongitude,
+      }),
+    },
     groups,
     widgets,
     layout: (dashboard.layout ?? []).filter((item) => visibleIds.has(`${item.kind}:${item.referenceId}`)),

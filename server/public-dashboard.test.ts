@@ -38,6 +38,7 @@ test("anonymous dashboard responses contain only published content", async () =>
     };
     const dashboard: DashboardData = {
       ...initial,
+      settings: { ...initial.settings, weatherLabel: "Private weather location", weatherLatitude: 42.12345 },
       groups: [
         {
           ...visibleGroup,
@@ -58,7 +59,7 @@ test("anonymous dashboard responses contain only published content", async () =>
         hiddenGroup,
       ],
       widgets: [
-        ...initial.widgets,
+        ...initial.widgets.map((widget) => widget.type === "weather" ? { ...widget, enabled: false } : widget),
         { id: "public-api", type: "custom-api", enabled: true, position: 100, config: { url: "http://private.example/api", label: "Public metric", apiKey: "private-marker" } },
         { id: "private-api", type: "custom-api", enabled: false, position: 101, config: { url: "http://private.example/hidden" } },
         { id: "media", type: "media-activity", enabled: true, position: 102, config: { serviceIds: [visibleService.id, "private-service"] } },
@@ -82,6 +83,9 @@ test("anonymous dashboard responses contain only published content", async () =>
       assert.equal(anonymous.widgets.some((widget) => widget.id === "private-api"), false);
       assert.deepEqual(anonymous.widgets.find((widget) => widget.id === "media")?.config.serviceIds, [visibleService.id]);
       assert.equal(JSON.stringify(anonymous).includes("private-marker"), false);
+      assert.notEqual(anonymous.settings.weatherLabel, "Private weather location");
+      assert.notEqual(anonymous.settings.weatherLatitude, 42.12345);
+      assert.equal((await app.inject({ method: "GET", url: "/api/weather" })).statusCode, 404);
 
       for (const url of ["/api/groups", "/api/services", "/api/settings", "/api/widgets", "/api/services/private-service"]) {
         assert.equal((await app.inject({ method: "GET", url })).statusCode, 401);
@@ -97,6 +101,8 @@ test("anonymous dashboard responses contain only published content", async () =>
       assert.equal(setup.statusCode, 200);
       const cookie = String(setup.headers["set-cookie"]).split(";", 1)[0];
       const admin = (await app.inject({ method: "GET", url: "/api/dashboard", headers: { cookie } })).json<DashboardData>();
+      assert.equal(admin.settings.weatherLabel, "Private weather location");
+      assert.equal(admin.settings.weatherLatitude, 42.12345);
       assert.equal(admin.groups.some((group) => group.id === "private-group"), true);
       assert.equal(admin.connections[0].endpoint, "http://private.example:2375");
       assert.equal((await app.inject({ method: "GET", url: "/api/groups", headers: { cookie } })).statusCode, 200);

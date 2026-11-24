@@ -5,7 +5,9 @@ import { fetchProwlarrPlugin, testProwlarrConnection } from "./prowlarr.js";
 test("Prowlarr aggregates indexer activity and keeps its key out of the payload", async () => {
   const original = globalThis.fetch;
   const calls: string[] = [];
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = async (input, options) => {
+    assert.equal(new Headers(options?.headers).get("X-Api-Key"), "prowlarr-secret");
+    assert.equal(new URL(String(input)).searchParams.has("apikey"), false);
     calls.push(String(input));
     return new Response(JSON.stringify({ indexers: [
       { numberOfQueries: 12, numberOfGrabs: 4, numberOfFailedQueries: 2, numberOfFailedGrabs: 1 },
