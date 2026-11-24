@@ -119,6 +119,14 @@ test("repeated login failures are throttled before further password checks", asy
     assert.equal(blocked.statusCode, 429);
     assert.ok(Number(blocked.headers["retry-after"]) > 0);
 
+    const otherClient = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      remoteAddress: "192.0.2.10",
+      payload: { username: "admin", password: "correct-horse-battery-staple" },
+    });
+    assert.equal(otherClient.statusCode, 200);
+
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const response = await app.inject({
         method: "POST",

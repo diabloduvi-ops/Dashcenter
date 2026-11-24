@@ -1,3 +1,4 @@
+import { readBoundedText } from "./bounded-response.js";
 import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
@@ -26,10 +27,7 @@ function baseUrl(value: string): string {
 }
 
 async function boundedText(response: Response): Promise<string> {
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("qBittorrent returned too much data.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("qBittorrent returned too much data.");
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "qBittorrent returned too much data.");
   return text;
 }
 

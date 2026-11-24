@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { cacheValue } from "./bounded-cache.js";
+import { readBoundedText } from "./bounded-response.js";
+
 const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const CACHE_TTL_MS = 2 * 60_000;
@@ -167,7 +171,7 @@ function atomLink(source: string, relation = "alternate"): string | undefined {
     const rel = attribute(match[1], "rel").toLowerCase();
     return relation === "alternate" ? !rel || rel === "alternate" : rel === relation;
   });
-  return safeHttpUrl(attribute((preferred ?? links[0])?.[1] ?? "", "href"));
+  return safeHttpUrl(attribute(preferred?.[1] ?? "", "href"));
 }
 
 function rssLink(source: string): string | undefined {
@@ -274,30 +278,48 @@ export function parseFeedReader(
   };
 }
 
-async function boundedText(response: Response): Promise<string> {
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("Feed returned too much data.");
-  if (!response.body) {
-    const text = await response.text();
-    if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Feed returned too much data.");
-    return text;
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  const chunks: string[] = [];
-  let received = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    received += value.byteLength;
-    if (received > MAX_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new Error("Feed returned too much data.");
+function removeSourceCredentials(payload: FeedReaderResponse, sourceUrl: string): FeedReaderResponse {
+  const source = new URL(sourceUrl);
+  const parameters = new Set([...source.searchParams.values()].filter(Boolean));
+  const markers = [source.href, ...[...parameters].filter((value) => value.length >= 8)];
+  const containsCredential = (value: string): boolean => markers.some((marker) =>
+    value.includes(marker) || value.includes(encodeURIComponent(marker)));
+  const redact = (value: string): string => markers.reduce((text, marker) =>
+    text.replaceAll(marker, "[redacted]").replaceAll(encodeURIComponent(marker), "[redacted]"), value);
+  const publicUrl = (value: string | undefined): string | undefined => {
+    if (!value || containsCredential(value)) return undefined;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return undefined;
     }
-    chunks.push(decoder.decode(value, { stream: true }));
-  }
-  chunks.push(decoder.decode());
-  return chunks.join("");
+    if (url.origin === source.origin && url.pathname === source.pathname) return undefined;
+    if ([...url.searchParams.values()].some((parameter) => parameters.has(parameter))) return undefined;
+    return value;
+  };
+  const { homeUrl, ...feed } = payload;
+  const safeHomeUrl = publicUrl(homeUrl);
+  return {
+    ...feed,
+    feedTitle: redact(feed.feedTitle),
+    ...(safeHomeUrl ? { homeUrl: safeHomeUrl } : {}),
+    items: feed.items.map(({ url, imageUrl, ...item }) => {
+      const safeUrl = publicUrl(url);
+      const safeImageUrl = publicUrl(imageUrl);
+      const id = createHash("sha256").update(item.id).digest("hex");
+      return {
+        ...item,
+        id,
+        title: redact(item.title),
+        summary: redact(item.summary),
+        author: redact(item.author),
+        ...(item.version ? { version: redact(item.version) } : {}),
+        ...(safeUrl ? { url: safeUrl } : {}),
+        ...(safeImageUrl ? { imageUrl: safeImageUrl } : {}),
+      };
+    }),
+  };
 }
 
 export async function fetchFeedReader(
@@ -320,7 +342,7 @@ export async function fetchFeedReader(
     try {
       response = await fetch(source.url, {
         method: "GET",
-        redirect: "follow",
+        redirect: "error",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         headers: {
           Accept: "application/atom+xml, application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1",
@@ -331,7 +353,10 @@ export async function fetchFeedReader(
       throw new Error("Could not reach the feed.");
     }
     if (!response.ok) throw new Error(`Feed returned HTTP ${response.status}.`);
-    const parsed = parseFeedReader(await boundedText(response), { ...config, maxItems: 20 });
+    const parsed = removeSourceCredentials(
+      parseFeedReader(await readBoundedText(response, MAX_RESPONSE_BYTES, "Feed returned too much data."), { ...config, maxItems: 20 }),
+      source.url,
+    );
     return { source, parsed };
   }));
   const fulfilled = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
@@ -359,7 +384,7 @@ export async function fetchFeedReader(
     ...(results.length > fulfilled.length ? { failedSources: results.length - fulfilled.length } : {}),
     updatedAt: new Date().toISOString(),
   };
-  cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+  cacheValue(cache, cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value }, 128);
   return value;
 }
 

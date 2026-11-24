@@ -1,3 +1,4 @@
+import { readBoundedText } from "./bounded-response.js";
 import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
@@ -22,19 +23,15 @@ async function request(path: string, config: BazarrConfig, credentials: BazarrCr
   const apiKey = credentials.apiKey.trim();
   if (!apiKey) throw new Error("Bazarr API key is not configured.");
   const url = new URL(`${baseUrl(config.url)}/api/${path}/wanted`);
-  url.searchParams.set("apikey", apiKey);
   let response: Response;
   try {
-    response = await fetchWithoutRedirect(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    response = await fetchWithoutRedirect(url, { headers: { Accept: "application/json", "X-Api-Key": apiKey }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   } catch {
     throw new Error("Could not reach Bazarr.");
   }
   if (response.status === 401 || response.status === 403) throw new Error("Bazarr authentication failed. Check the API key.");
   if (!response.ok) throw new Error(`Bazarr request failed with status ${response.status}.`);
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("Bazarr returned too much data.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Bazarr returned too much data.");
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "Bazarr returned too much data.");
   try { return JSON.parse(text) as unknown; } catch { throw new Error("Bazarr returned an invalid response."); }
 }
 

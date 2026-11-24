@@ -1,3 +1,4 @@
+import { readBoundedText } from "./bounded-response.js";
 import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 import type { MediaActivity, MediaActivitySession, MediaPlayMethod } from "../shared/media-activity.js";
@@ -31,10 +32,7 @@ function baseUrl(value: string): string {
 }
 
 async function responseJson(response: Response): Promise<unknown> {
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("Plex returned too much data.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Plex returned too much data.");
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "Plex returned too much data.");
   try {
     return JSON.parse(text) as unknown;
   } catch {

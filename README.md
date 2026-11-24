@@ -4,7 +4,7 @@
 
 # Dashcenter
 
-**Current release: v1.0.6**
+**Current release: v1.0.7**
 
 Dashcenter is a self-hosted start page and service dashboard managed from the browser. It combines links, service status, Docker metadata, native service integrations and flexible widgets in one responsive board without requiring users to maintain YAML for everyday changes.
 
@@ -50,6 +50,8 @@ The first-run setup lets the administrator choose an empty board or a small gene
 By default, anyone who can reach Dashcenter can view the published dashboard, groups marked **Everyone**, and data shown by enabled widgets and plugins. In **Settings → Dashboard**, enable **Require sign-in to view** to require an account for all dashboard data and uploaded images. This release uses the existing administrator account for viewing; it does not add a separate viewer role. Group visibility in **Settings → Services** can be **Everyone**, **Signed-in only**, or **Hidden**. Signed-in groups are omitted from anonymous dashboard and plugin responses. Hidden groups stay off the board even when signed in. Keep sensitive information out of names, links and widgets that you choose to publish.
 
 Disabled widgets, private feed URLs, provider credentials and Docker connection endpoints are excluded from anonymous dashboard responses. An RSS/Atom feed widget can combine up to five saved URLs, sorted by date with the source name on each item; feed URLs remain stored on the server.
+
+Configure RSS, Atom and iCalendar widgets with the final feed URL because redirects are rejected. Portainer overview reports container counts from up to 32 online environments. Select an environment to inspect it individually.
 
 Complete the first-run administrator setup on a trusted network before making the dashboard reachable from the internet. Failed logins are temporarily throttled, and signed-in image uploads share a limit of 12 requests per account per minute across all upload forms. Internet-facing installations should also use HTTPS and a trusted reverse proxy. JSON configuration backups omit server-side credentials and uploaded files, but they still contain service links and internal connection settings; store them privately.
 
@@ -283,6 +285,8 @@ pnpm install
 pnpm dev
 ~~~
 
+The development servers listen on loopback by default and use the normal administrator setup and sign-in.
+
 Run the complete local verification set:
 
 ~~~bash
@@ -312,7 +316,7 @@ Dashcenter follows semantic versioning:
 - **MINOR** for completed backward-compatible capabilities
 - **PATCH** for fixes and small compatibility or deployment corrections
 
-Every release synchronizes the application, health API, README and changelog. The [image publishing workflow](.github/workflows/publish-images.yml) gives both GHCR images a version tag such as **1.0.6** and the moving **latest** tag. Container builds accept **DASHCENTER_REVISION** and record it in the OCI **org.opencontainers.image.revision** label.
+Every release synchronizes the application, health API, README and changelog. The [image publishing workflow](.github/workflows/publish-images.yml) gives both GHCR images a version tag such as **1.0.7** and the moving **latest** tag. Container builds accept **DASHCENTER_REVISION** and record it in the OCI **org.opencontainers.image.revision** label.
 
 ## Licence and provenance
 

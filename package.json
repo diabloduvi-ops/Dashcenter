@@ -1,6 +1,6 @@
 {
   "name": "dashcenter",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "type": "module",
   "description": "A GUI-managed, self-hosted dashboard for Docker and Portainer.",
@@ -9,9 +9,9 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "dev": "concurrently -k -n api,web -c green,cyan \"DEV_BYPASS_AUTH=1 tsx watch server/index.ts\" \"vite --host 0.0.0.0\"",
-    "dev:api": "DEV_BYPASS_AUTH=1 tsx watch server/index.ts",
-    "dev:web": "vite --host 0.0.0.0",
+    "dev": "concurrently -k -n api,web -c green,cyan \"tsx watch server/index.ts\" \"vite\"",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:web": "vite",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "build": "pnpm typecheck && vite build && tsc -p tsconfig.server.build.json",
     "licenses:generate": "node scripts/generate-license-inventory.mjs",

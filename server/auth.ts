@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt, scryptSync, timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AuthState } from "../shared/types.js";
 import type { AppDatabase } from "./database.js";
@@ -6,6 +6,10 @@ import type { AppDatabase } from "./database.js";
 const COOKIE_NAME = "dashcenter_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const SCRYPT_KEY_LENGTH = 64;
+const SCRYPT_OPTIONS = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+const DUMMY_SALT = randomBytes(16);
+const DUMMY_HASH = randomBytes(SCRYPT_KEY_LENGTH);
+const MAX_ACTIVE_LOGINS = 4;
 const LOGIN_WINDOW_MS = 5 * 60 * 1_000;
 const LOGIN_COOLDOWN_MS = 60 * 1_000;
 const LOGIN_ACCOUNT_FAILURE_LIMIT = 8;
@@ -59,7 +63,7 @@ interface UserRow {
   password_hash?: string;
 }
 
-function bypassEnabled(): boolean {
+export function bypassEnabled(): boolean {
   if (process.env.NODE_ENV === "production") return false;
   const value = process.env.DEV_BYPASS_AUTH?.toLowerCase();
   return value === "1" || value === "true" || value === "yes";
@@ -73,11 +77,15 @@ export function secureSessionCookiesEnabled(env: NodeJS.ProcessEnv = process.env
 }
 
 function hashPassword(password: string, salt: Buffer): Buffer {
-  return scryptSync(password, salt, SCRYPT_KEY_LENGTH, {
-    N: 1 << 15,
-    r: 8,
-    p: 1,
-    maxmem: 64 * 1024 * 1024,
+  return scryptSync(password, salt, SCRYPT_KEY_LENGTH, SCRYPT_OPTIONS);
+}
+
+function hashLoginPassword(password: string, salt: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, SCRYPT_KEY_LENGTH, SCRYPT_OPTIONS, (error, key) => {
+      if (error) reject(error);
+      else resolve(key);
+    });
   });
 }
 
@@ -126,7 +134,7 @@ function createSession(database: AppDatabase, userId: number, reply: FastifyRepl
 export interface AuthController {
   state(request: FastifyRequest): AuthState;
   setup(username: string, displayName: string, password: string, reply: FastifyReply): AuthState;
-  login(username: string, password: string, clientIp: string, reply: FastifyReply): AuthState | undefined;
+  login(username: string, password: string, clientIp: string, reply: FastifyReply): Promise<AuthState | undefined>;
   logout(request: FastifyRequest, reply: FastifyReply): void;
   changePassword(request: FastifyRequest, currentPassword: string, newPassword: string, reply: FastifyReply): boolean;
   requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void>;
@@ -135,6 +143,7 @@ export interface AuthController {
 export function createAuthController(database: AppDatabase): AuthController {
   const accountAttempts = new Map<string, LoginBucket>();
   const clientAttempts = new Map<string, LoginBucket>();
+  let activeLogins = 0;
   return {
     state(request) {
       if (bypassEnabled()) {
@@ -176,19 +185,21 @@ export function createAuthController(database: AppDatabase): AuthController {
       return { needsSetup: false, authenticated: true, username, displayName: displayName || username };
     },
 
-    login(username, password, clientIp, reply) {
+    async login(username, password, clientIp, reply) {
       const now = Date.now();
-      const accountKey = username.toLocaleLowerCase();
       const clientKey = clientIp.slice(0, 256);
+      const accountKey = `${clientKey}\u0000${username.toLowerCase()}`;
       const wait = Math.max(
         retryAfter(accountAttempts, accountKey, now),
         retryAfter(clientAttempts, clientKey, now),
       );
       if (wait > 0) throw new LoginRateLimitError(wait);
+      if (activeLogins >= MAX_ACTIVE_LOGINS) throw new LoginRateLimitError(1);
 
       const fail = () => {
-        recordLoginFailure(accountAttempts, accountKey, LOGIN_ACCOUNT_FAILURE_LIMIT, now);
-        recordLoginFailure(clientAttempts, clientKey, LOGIN_IP_FAILURE_LIMIT, now);
+        const failedAt = Date.now();
+        recordLoginFailure(accountAttempts, accountKey, LOGIN_ACCOUNT_FAILURE_LIMIT, failedAt);
+        recordLoginFailure(clientAttempts, clientKey, LOGIN_IP_FAILURE_LIMIT, failedAt);
         return undefined;
       };
       const user = database
@@ -197,17 +208,23 @@ export function createAuthController(database: AppDatabase): AuthController {
           FROM users WHERE username = ? COLLATE NOCASE
         `)
         .get(username) as UserRow | undefined;
-      if (!user?.password_salt || !user.password_hash) return fail();
-
-      let storedHash: Buffer;
+      const storedHash = user?.password_hash ? Buffer.from(user.password_hash, "base64") : DUMMY_HASH;
+      const salt = user?.password_salt ? Buffer.from(user.password_salt, "base64") : DUMMY_SALT;
       let candidate: Buffer;
+      activeLogins += 1;
       try {
-        storedHash = Buffer.from(user.password_hash, "base64");
-        candidate = hashPassword(password, Buffer.from(user.password_salt, "base64"));
+        candidate = await hashLoginPassword(password, salt);
       } catch {
         return fail();
+      } finally {
+        activeLogins -= 1;
       }
-      if (storedHash.length !== candidate.length || !timingSafeEqual(storedHash, candidate)) return fail();
+      const valid = timingSafeEqual(storedHash.length === candidate.length ? storedHash : DUMMY_HASH, candidate);
+      if (!user?.password_salt || !user.password_hash || storedHash.length !== candidate.length || !valid) return fail();
+
+      // A password rotation can invalidate a login while its key is being derived.
+      const current = database.prepare("SELECT password_hash FROM users WHERE id = ?").get(user.id) as UserRow | undefined;
+      if (current?.password_hash !== user.password_hash) return fail();
 
       accountAttempts.delete(accountKey);
       clientAttempts.delete(clientKey);

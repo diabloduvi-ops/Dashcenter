@@ -1,3 +1,4 @@
+import { readBoundedText } from "./bounded-response.js";
 import http from "node:http";
 import type { DockerConnection } from "../shared/types.js";
 
@@ -80,10 +81,7 @@ async function httpRequest(endpoint: string, requestPath: string): Promise<strin
     redirect: "error",
     headers: { Accept: "application/json, text/plain;q=0.9" },
   });
-  const body = await response.text();
-  if (Buffer.byteLength(body, "utf8") > MAX_RESPONSE_BYTES) {
-    throw new Error("Docker returned a response larger than 10 MB.");
-  }
+  const body = await readBoundedText(response, MAX_RESPONSE_BYTES, "Docker returned a response larger than 10 MB.");
   if (!response.ok) throw new Error(`Docker returned HTTP ${response.status}: ${body.slice(0, 300)}`);
   return body;
 }

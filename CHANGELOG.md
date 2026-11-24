@@ -4,6 +4,20 @@ All notable Dashcenter changes are recorded here. The project follows [Semantic 
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-11-24
+
+### Security
+
+- Hardened public dashboard and integration requests with request, concurrency, response-size and cache limits.
+- Protected private feed credentials and weather settings, tightened outgoing requests, and moved Bazarr and Prowlarr credentials into request headers.
+- Added origin validation for dashboard changes and improved login throttling and credential verification.
+- Added limits for calendar recurrence, Homepage YAML import and Portainer overview requests. Development servers use normal authentication and listen locally by default.
+- Updated Zod to 4.6.6.
+
+### Changed
+
+- Use final RSS, Atom and iCalendar feed URLs when configuring widgets. Use a specific Portainer environment for individual container counts when the overview reaches its inspection limit.
+
 ## [1.0.6] - 2026-10-20
 
 ### Added

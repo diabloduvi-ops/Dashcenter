@@ -17,7 +17,7 @@ import type {
   DockerConnection,
 } from "../shared/types.js";
 import { DASHCENTER_VERSION } from "../shared/version.js";
-import { createAuthController, LoginRateLimitError } from "./auth.js";
+import { bypassEnabled, createAuthController, LoginRateLimitError } from "./auth.js";
 import { fetchArrPlugin, testArrConnection } from "./arr.js";
 import { fetchBazarrPlugin, testBazarrConnection } from "./bazarr.js";
 import { fetchBeszelWidget, testBeszelConnection } from "./beszel.js";
@@ -46,7 +46,7 @@ import { fetchSteamWishlistPlugin, normalizeSteamId, testSteamWishlistConnection
 import { fetchSystemResources, selectSystemResourceDockerConnection } from "./system-resources.js";
 import { fetchUptimeKumaPlugin, testUptimeKumaConnection } from "./uptime-kuma.js";
 import { fetchCustomApiWidget } from "./custom-api.js";
-import { publishedDashboard } from "./public-dashboard.js";
+import { publishedDashboard, publishedWeatherLocation } from "./public-dashboard.js";
 import { createStarterDashboard } from "./seed.js";
 import {
   createDatabase,
@@ -95,6 +95,18 @@ import { fetchWeather } from "./weather.js";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const IMAGE_UPLOADS_PER_MINUTE = 12;
+const MAX_OUTBOUND_REQUESTS = 12;
+const OUTBOUND_ROUTES = new Set([
+  "/api/system/resources",
+  "/api/services/:id/plugin",
+  "/api/services/:id/plugin/artwork/:artworkId",
+  "/api/widgets/beszel/:id",
+  "/api/widgets/calendar-agenda/:id",
+  "/api/widgets/feed-reader/:id",
+  "/api/widgets/custom-api/:id",
+  "/api/icons/svg/:set/:name",
+  "/api/weather",
+]);
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
@@ -412,6 +424,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   try {
     await app.register(cookie);
     await app.register(rateLimit, { global: false });
+    app.addHook("onRequest", async (request, reply) => {
+      if (!request.url.startsWith("/api/") || ["GET", "HEAD", "OPTIONS"].includes(request.method)) return;
+      const fetchSite = request.headers["sec-fetch-site"];
+      const source = request.headers.origin ?? request.headers.referer;
+      let allowed = fetchSite !== "same-site" && fetchSite !== "cross-site";
+      if (source !== undefined) {
+        try {
+          allowed = allowed && new URL(source).origin === new URL(`${request.protocol}://${request.host}`).origin;
+        } catch {
+          allowed = false;
+        }
+      }
+      if (!allowed) return reply.code(403).send({ error: "Cross-origin changes are not allowed" });
+    });
     app.addHook("preHandler", async (request, reply) => {
       if (!requiresSignIn() || isAdmin(request)) return;
       const pathname = request.url.split("?", 1)[0];
@@ -421,6 +447,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (pathname.startsWith("/api/") || pathname.startsWith("/uploads/")) {
         return reply.code(401).send({ error: "Sign in to view this dashboard" });
       }
+    });
+    const checkOutboundRate = app.createRateLimit({ max: 240, timeWindow: "1 minute" });
+    let activeOutboundRequests = 0;
+    app.addHook("onRoute", (route) => {
+      if (!OUTBOUND_ROUTES.has(route.url)) return;
+      const handler = route.handler;
+      route.handler = async function (request, reply) {
+        if (!isAdmin(request)) {
+          const rate = await checkOutboundRate(request);
+          if (!rate.isAllowed && rate.isExceeded) {
+            return reply.header("Retry-After", String(Math.max(1, rate.ttlInSeconds)))
+              .code(429).send({ error: "Too many requests. Try again later." });
+          }
+        }
+        if (activeOutboundRequests >= MAX_OUTBOUND_REQUESTS) {
+          return reply.header("Retry-After", "2").code(503).send({ error: "Integrations are busy. Try again shortly." });
+        }
+        activeOutboundRequests += 1;
+        try {
+          return await handler.call(this, request, reply);
+        } finally {
+          activeOutboundRequests -= 1;
+        }
+      };
     });
     const checkImageUploadRate = app.createRateLimit({
       max: IMAGE_UPLOADS_PER_MINUTE,
@@ -545,7 +595,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.post("/api/auth/login", async (request, reply) => {
     const body = authLoginSchema.parse(request.body);
     try {
-      const state = auth.login(body.username, body.password, request.ip, reply);
+      const state = await auth.login(body.username, body.password, request.ip, reply);
       return state ?? reply.code(401).send({ error: "Incorrect username or password." });
     } catch (error) {
       if (error instanceof LoginRateLimitError) {
@@ -1522,12 +1572,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         label: z.string().trim().max(120).optional(),
       })
       .parse(request.query);
-    const settings = readDashboard(database).settings;
+    const dashboard = readDashboard(database);
+    const admin = isAdmin(request);
+    const settings = admin ? dashboard.settings : publishedWeatherLocation(dashboard);
+    if (!settings) return reply.code(404).send({ error: "Enabled weather widget not found" });
     try {
       return await fetchWeather(
-        query.label ?? settings.weatherLabel,
-        query.lat ?? settings.weatherLatitude,
-        query.lon ?? settings.weatherLongitude,
+        (admin ? query.label : undefined) ?? settings.weatherLabel,
+        (admin ? query.lat : undefined) ?? settings.weatherLatitude,
+        (admin ? query.lon : undefined) ?? settings.weatherLongitude,
       );
     } catch (error) {
       return reply.code(502).send({
@@ -1564,9 +1617,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 }
 
 async function start(): Promise<void> {
-  const app = await buildApp();
+  const host = process.env.HOST ?? (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+  if (bypassEnabled() && host !== "127.0.0.1" && host !== "::1") {
+    throw new Error("DEV_BYPASS_AUTH requires a loopback HOST.");
+  }
   const port = Number.parseInt(process.env.PORT ?? "3000", 10);
-  const host = process.env.HOST ?? "0.0.0.0";
+  const app = await buildApp();
   await app.listen({ port: Number.isFinite(port) ? port : 3000, host });
 
   const shutdown = async () => {

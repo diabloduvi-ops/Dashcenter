@@ -1,6 +1,14 @@
+import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
+import { pipeline, Readable } from "node:stream";
+import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import type { DashboardWidget } from "../shared/types.js";
+import { readBoundedText } from "./bounded-response.js";
+import { cacheValue } from "./bounded-cache.js";
+import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { isHttpUrl } from "./homepage-yaml.js";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -30,6 +38,7 @@ function isPrivateIpv4(address: string): boolean {
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
     (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 192 && b === 88 && c === 99) ||
     (a === 198 && (b === 18 || b === 19 || b === 51)) ||
     (a === 203 && b === 0 && c === 113) ||
     a >= 224
@@ -39,22 +48,12 @@ function isPrivateIpv4(address: string): boolean {
 function isPrivateIp(address: string): boolean {
   if (isIP(address) === 4) return isPrivateIpv4(address);
   if (isIP(address) !== 6) return true;
-  const value = address.toLowerCase();
-  if (value.startsWith("::ffff:")) return isPrivateIpv4(value.slice("::ffff:".length));
-  return (
-    value === "::" ||
-    value === "::1" ||
-    value.startsWith("fc") ||
-    value.startsWith("fd") ||
-    value.startsWith("fe8") ||
-    value.startsWith("fe9") ||
-    value.startsWith("fea") ||
-    value.startsWith("feb") ||
-    value.startsWith("2001:db8:")
-  );
+  const [first, second] = address.split(":").map((part) => Number.parseInt(part || "0", 16));
+  return first < 0x2000 || first >= 0x4000 || first === 0x2002 || first === 0x3fff ||
+    (first === 0x2001 && (second < 0x0200 || second === 0x0db8));
 }
 
-async function validateTarget(target: URL, allowedPrivateHosts: string[]): Promise<void> {
+async function validateTarget(target: URL, allowedPrivateHosts: string[]): Promise<LookupAddress | undefined> {
   const hostname = normalizedHost(target.hostname);
   const allowlisted = allowedPrivateHosts.map(normalizedHost).includes(hostname);
   if (allowlisted) return;
@@ -76,10 +75,66 @@ async function validateTarget(target: URL, allowedPrivateHosts: string[]): Promi
     return;
   }
 
-  const addresses = await lookup(hostname, { all: true, verbatim: true });
+  const addresses = await lookup(hostname, { all: true, verbatim: true }).catch(() => {
+    throw new Error("Could not resolve the custom API host.");
+  });
   if (addresses.length === 0 || addresses.some(({ address }) => isPrivateIp(address))) {
     throw new Error("The custom API host resolves to a private address and is not allowlisted.");
   }
+  return addresses[0];
+}
+
+const LIMIT_ERROR = "Custom API response is larger than 1 MB.";
+const HEADERS = { Accept: "application/json", "User-Agent": "Dashcenter/0.1 custom-api" };
+
+async function fetchApiText(target: URL, pinned: LookupAddress | undefined, signal: AbortSignal): Promise<string> {
+  if (!pinned) {
+    const response = await fetchWithoutRedirect(target, { signal, headers: HEADERS });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`Custom API returned HTTP ${response.status}.`);
+    }
+    return readBoundedText(response, MAX_RESPONSE_BYTES, LIMIT_ERROR);
+  }
+
+  // Keep the configured hostname for HTTP Host and TLS, but connect to the
+  // exact address that passed validation.
+  return new Promise((resolve, reject) => {
+    const request = target.protocol === "https:" ? httpsRequest : httpRequest;
+    const outgoing = request(target, {
+      agent: false,
+      family: pinned.family,
+      lookup: (_host, _options, callback) => callback(null, pinned.address, pinned.family),
+      signal,
+      headers: HEADERS,
+    }, (response) => {
+      const status = response.statusCode ?? 502;
+      if (status < 200 || status >= 300) {
+        response.destroy();
+        reject(new Error(`Custom API returned HTTP ${status}.`));
+        return;
+      }
+
+      const encoding = response.headers["content-encoding"];
+      const decompress = encoding === "gzip" ? createGunzip()
+        : encoding === "deflate" ? createInflate()
+          : encoding === "br" ? createBrotliDecompress() : undefined;
+      if (encoding && encoding !== "identity" && !decompress) {
+        response.destroy();
+        reject(new Error("Custom API returned an unsupported content encoding."));
+        return;
+      }
+      if (decompress) pipeline(response, decompress, (error) => { if (error) reject(error); });
+      const headers = new Headers();
+      if (response.headers["content-length"]) headers.set("content-length", response.headers["content-length"]);
+      const body = Readable.toWeb(decompress ?? response, {
+        strategy: { highWaterMark: 64 * 1024, size: (chunk: Buffer) => chunk.byteLength },
+      }) as ReadableStream<Uint8Array>;
+      void readBoundedText({ body, headers }, MAX_RESPONSE_BYTES, LIMIT_ERROR).then(resolve, reject);
+    });
+    outgoing.once("error", reject);
+    outgoing.end();
+  });
 }
 
 function extractPath(value: unknown, dotPath: string): unknown {
@@ -113,7 +168,7 @@ export async function fetchCustomApiWidget(widget: DashboardWidget): Promise<Cus
   if (target.username || target.password) throw new Error("Custom API URLs cannot contain embedded credentials.");
 
   const allowedPrivateHosts = stringArray(config.allowPrivateHosts);
-  await validateTarget(target, allowedPrivateHosts);
+  const signal = AbortSignal.timeout(6_000);
   const valuePath =
     typeof config.valuePath === "string" ? config.valuePath : typeof config.path === "string" ? config.path : "";
   if (valuePath.length > 500) throw new Error("Custom API value path is too long.");
@@ -122,22 +177,12 @@ export async function fetchCustomApiWidget(widget: DashboardWidget): Promise<Cus
     typeof config.cacheSeconds === "number" && Number.isFinite(config.cacheSeconds)
       ? Math.max(10, Math.min(3600, Math.round(config.cacheSeconds)))
       : 60;
-  const cacheKey = `${widget.id}:${target.toString()}:${valuePath}`;
+  const cacheKey = JSON.stringify([widget.id, target.href, valuePath, allowedPrivateHosts, label]);
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.response;
 
-  const response = await fetch(target, {
-    signal: AbortSignal.timeout(6_000),
-    redirect: "error",
-    headers: { Accept: "application/json", "User-Agent": "Dashcenter/0.1 custom-api" },
-  });
-  if (!response.ok) throw new Error(`Custom API returned HTTP ${response.status}.`);
-  const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
-    throw new Error("Custom API response is larger than 1 MB.");
-  }
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Custom API response is larger than 1 MB.");
+  const pinned = await validateTarget(target, allowedPrivateHosts);
+  const text = await fetchApiText(target, pinned, signal);
   let json: unknown;
   try {
     json = JSON.parse(text);
@@ -145,6 +190,6 @@ export async function fetchCustomApiWidget(widget: DashboardWidget): Promise<Cus
     throw new Error("Custom API did not return valid JSON.");
   }
   const result = { label, value: extractPath(json, valuePath), updatedAt: new Date().toISOString() };
-  cache.set(cacheKey, { expiresAt: Date.now() + cacheSeconds * 1000, response: result });
+  cacheValue(cache, cacheKey, { expiresAt: Date.now() + cacheSeconds * 1000, response: result }, 64);
   return result;
 }

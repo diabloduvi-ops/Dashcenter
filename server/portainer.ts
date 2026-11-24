@@ -1,9 +1,13 @@
+import { cacheValue } from "./bounded-cache.js";
+import { readBoundedText } from "./bounded-response.js";
 import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 import { createHash } from "node:crypto";
 
 const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const PLUGIN_CACHE_TTL_MS = 25_000;
+const MAX_OVERVIEW_ENDPOINTS = 32;
+const OVERVIEW_BATCH_SIZE = 4;
 
 export interface PortainerConfig {
   url: string;
@@ -48,10 +52,7 @@ function baseUrl(value: string): string {
 }
 
 async function responseJson(response: Response): Promise<unknown> {
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("Portainer returned too much data.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Portainer returned too much data.");
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "Portainer returned too much data.");
   try {
     return JSON.parse(text) as unknown;
   } catch {
@@ -59,7 +60,7 @@ async function responseJson(response: Response): Promise<unknown> {
   }
 }
 
-async function request(url: string, credentials: PortainerCredentials): Promise<unknown> {
+async function request(url: string, credentials: PortainerCredentials, signal?: AbortSignal): Promise<unknown> {
   const apiKey = credentials.apiKey.trim();
   if (!apiKey) throw new Error("Portainer access token is not configured.");
   let response: Response;
@@ -67,7 +68,7 @@ async function request(url: string, credentials: PortainerCredentials): Promise<
     response = await fetchWithoutRedirect(url, {
       method: "GET",
       headers: { Accept: "application/json", "X-API-Key": apiKey },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch {
     throw new Error("Could not reach Portainer.");
@@ -155,31 +156,37 @@ export async function fetchPortainerPlugin(
   let value: PortainerPayload;
   if (!selectedId) {
     const onlineEndpoints = availableEndpoints.filter((endpoint) => endpoint.Status === 1);
-    const [stackResult, ...containerResults] = await Promise.allSettled([
-      request(`${portainerUrl}/api/stacks`, credentials),
-      ...onlineEndpoints.map((endpoint) => request(
+    const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    const stacksRequest = request(`${portainerUrl}/api/stacks`, credentials, signal).catch(() => undefined);
+    const limitedEndpoints = onlineEndpoints.slice(0, MAX_OVERVIEW_ENDPOINTS);
+    const containers: ContainerMetrics = { total: 0, running: 0, healthy: 0, stopped: 0 };
+    let inspected = 0;
+    for (let index = 0; index < limitedEndpoints.length && !signal.aborted; index += OVERVIEW_BATCH_SIZE) {
+      const batch = limitedEndpoints.slice(index, index + OVERVIEW_BATCH_SIZE);
+      const results = await Promise.allSettled(batch.map((endpoint) => request(
         `${portainerUrl}/api/endpoints/${encodeURIComponent(String(endpoint.Id))}/docker/containers/json?all=true`,
         credentials,
-      )),
-    ]);
-    const inspectedContainers = containerResults.flatMap((result) => (
-      result.status === "fulfilled" && Array.isArray(result.value)
-        ? result.value as DockerContainer[]
-        : []
-    ));
-    const inspected = containerResults.filter((result) => (
-      result.status === "fulfilled" && Array.isArray(result.value)
-    )).length;
-    const stackData = stackResult?.status === "fulfilled" && Array.isArray(stackResult.value)
-      ? stackResult.value as PortainerStack[]
-      : [];
+        signal,
+      )));
+      for (const result of results) {
+        if (result.status !== "fulfilled" || !Array.isArray(result.value)) continue;
+        const counts = summarizeContainers(result.value as DockerContainer[]);
+        containers.total += counts.total;
+        containers.running += counts.running;
+        containers.healthy += counts.healthy;
+        containers.stopped += counts.stopped;
+        inspected += 1;
+      }
+    }
+    const stackResult = await stacksRequest;
+    const stackData = Array.isArray(stackResult) ? stackResult as PortainerStack[] : [];
     const visibleEndpointIds = new Set(availableEndpoints.map((endpoint) => endpoint.Id));
     value = {
       mode: "overview",
       endpoints: availableEndpoints.length,
       online: onlineEndpoints.length,
       inspected,
-      containers: summarizeContainers(inspectedContainers),
+      containers,
       stacks: stackData.filter((stack) => (
         stack.EndpointId === undefined || visibleEndpointIds.has(stack.EndpointId)
       )).length,
@@ -211,6 +218,6 @@ export async function fetchPortainerPlugin(
       updatedAt: new Date().toISOString(),
     };
   }
-  pluginCache.set(key, { value, expiresAt: Date.now() + PLUGIN_CACHE_TTL_MS });
+  cacheValue(pluginCache, key, { value, expiresAt: Date.now() + PLUGIN_CACHE_TTL_MS }, 128);
   return value;
 }

@@ -1,3 +1,4 @@
+import { readBoundedText } from "./bounded-response.js";
 import { fetchWithoutRedirect } from "./credentialed-fetch.js";
 const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -44,10 +45,7 @@ function baseUrl(value: string): string {
 }
 
 async function responseJson(response: Response): Promise<unknown> {
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("Beszel returned too much data.");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) throw new Error("Beszel returned too much data.");
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "Beszel returned too much data.");
   try {
     return JSON.parse(text) as unknown;
   } catch {
